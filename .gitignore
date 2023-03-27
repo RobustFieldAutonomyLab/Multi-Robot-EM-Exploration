@@ -1,0 +1,7 @@
+training*
+experiment*
+__pycache__
+marine_env/marine_env.egg-info/
+config/
+*.png
+*.json
