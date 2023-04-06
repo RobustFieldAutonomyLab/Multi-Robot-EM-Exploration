@@ -21,13 +21,13 @@ class EnvVisualizer:
                  plot_qvalues:bool=False, # If Q values are needed in the video
                  dpi:int=96, # Monitor DPI
                  ): 
-        self.env = marinenav_env.MarineNavEnv(seed)
+        self.env = marinenav_env.MarineNavEnv2(seed)
         self.env.reset()
         self.fig = None # figure for visualization
         self.axis_graph = None # sub figure for the map
-        self.robot_plot = None
-        self.robot_last_pos = None
-        self.robot_traj_plot = []
+        self.robots_plot = []
+        self.robots_last_pos = []
+        self.robots_traj_plot = []
         self.sonar_beams_plot = []
         self.axis_title = None # sub figure for title
         self.axis_action = None # sub figure for action command and steer data
@@ -58,7 +58,11 @@ class EnvVisualizer:
         # initialize subplot for the map, robot state and sensor measurments
         if self.draw_envs:
             # Mode 2: plot final trajectories given action sequences
-            self.fig, self.axis_graphs = plt.subplots(1,len(env_configs),figsize=(24,8))
+            if env_configs is None:
+                self.fig, self.axis_graph = plt.subplots(1,1,figsize=(8,8))
+            else:
+                num = len(env_configs)
+                self.fig, self.axis_graphs = plt.subplots(1,num,figsize=(8*num,8))
         elif self.draw_traj:
             # Mode 3: plot the envrionment
             self.fig, self.axis_graph = plt.subplots(figsize=(8,8))
@@ -136,10 +140,9 @@ class EnvVisualizer:
             self.axis_action = self.fig.add_subplot(spec[0,2])
             self.axis_sonar = self.fig.add_subplot(spec[1:3,2])
             self.axis_dvl = self.fig.add_subplot(spec[3:,2])
-        
-        self.robot_last_pos = None
 
-        if self.draw_envs:
+
+        if self.draw_envs and env_configs is not None:
             for i,env_config in enumerate(env_configs):
                 self.load_episode(env_config)
                 self.plot_graph(self.axis_graphs[i])
@@ -205,32 +208,41 @@ class EnvVisualizer:
         axis.set_xticks([])
         axis.set_yticks([])
 
-        # plot start and goal state
-        axis.scatter(self.env.start[0],self.env.start[1],marker="o",color="yellow",s=320,zorder=5)
-        axis.scatter(self.env.goal[0],self.env.goal[1],marker="*",color="yellow",s=1000,zorder=5)
+        # plot start and goal state of each robot
+        for idx,robot in enumerate(self.env.robots):
+            axis.scatter(robot.start[0],robot.start[1],marker="o",color="yellow",s=160,zorder=5)
+            axis.scatter(robot.goal[0],robot.goal[1],marker="*",color="yellow",s=500,zorder=5)
+            axis.text(robot.start[0]-1,robot.start[1]+1,str(idx),color="yellow",fontsize=15)
+            axis.text(robot.goal[0]-1,robot.goal[1]+1,str(idx),color="yellow",fontsize=15)
+            self.robots_last_pos.append([])
+            self.robots_traj_plot.append([])
+
+        self.plot_robots()
     
-    def plot_robot(self):
-        if self.robot_plot != None:
-            self.robot_plot.remove()
+    def plot_robots(self):
+        for robot_plot in self.robots_plot:
+            robot_plot[0].remove()
 
-        d = np.matrix([[0.5*self.env.robot.length],[0.5*self.env.robot.width]])
-        rot = np.matrix([[np.cos(self.env.robot.theta),-np.sin(self.env.robot.theta)], \
-                         [np.sin(self.env.robot.theta),np.cos(self.env.robot.theta)]])
-        d_r = rot * d
-        xy = (self.env.robot.x-d_r[0,0],self.env.robot.y-d_r[1,0])
+        for i,robot in enumerate(self.env.robots):
+            d = np.matrix([[0.5*robot.length],[0.5*robot.width]])
+            rot = np.matrix([[np.cos(robot.theta),-np.sin(robot.theta)], \
+                            [np.sin(robot.theta),np.cos(robot.theta)]])
+            d_r = rot * d
+            xy = (robot.x-d_r[0,0],robot.y-d_r[1,0])
 
-        angle_d = self.env.robot.theta / np.pi * 180
-        self.robot_plot = self.axis_graph.add_patch(mpl.patches.Rectangle(xy,self.env.robot.length, \
-                                                   self.env.robot.width,     \
-                                                   color='g',angle=angle_d,zorder=7))
+            angle_d = robot.theta / np.pi * 180
+            c = 'g' if robot.cooperative else 'r'
+            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Rectangle(xy,robot.length, \
+                                                              robot.width, color=c, \
+                                                              angle=angle_d,zorder=7)))
 
-        if self.robot_last_pos != None:
-            h = self.axis_graph.plot((self.robot_last_pos[0],self.env.robot.x),
-                                    (self.robot_last_pos[1],self.env.robot.y),
-                                    color='tab:orange')
-            self.robot_traj_plot.append(h)
-        
-        self.robot_last_pos = [self.env.robot.x, self.env.robot.y]
+            if self.robots_last_pos[i] != []:
+                h = self.axis_graph.plot((self.robots_last_pos[i][0],robot.x),
+                                         (self.robots_last_pos[i][1],robot.y),
+                                         color='tab:orange')
+                self.robots_traj_plot[i].append(h)
+            
+            self.robots_last_pos[i] = [robot.x, robot.y]
 
     def plot_action_and_steer_state(self,action):
         self.axis_action.clear()
@@ -602,7 +614,6 @@ class EnvVisualizer:
         self.load_episode(episode)
 
     def play_episode(self,start_idx=0):
-        self.robot_last_pos = None
         for plot in self.robot_traj_plot:
             plot[0].remove()
         self.robot_traj_plot.clear()

@@ -377,7 +377,7 @@ if __name__ == "__main__":
     seed = 15 # PRNG seed for all testing envs
 
     ##### adaptive IQN #####
-    test_env_0 = marinenav_env.MarineNavEnv(seed)
+    test_env_0 = marinenav_env.MarineNavEnv2(seed)
 
     save_dir = "training_data/training_2023-02-08-00-06-53/seed_3"
 
@@ -393,7 +393,7 @@ if __name__ == "__main__":
 
 
     ##### IQN cvar = 0.25 #####
-    test_env_1 = marinenav_env.MarineNavEnv(seed)
+    test_env_1 = marinenav_env.MarineNavEnv2(seed)
 
     save_dir = "training_data/training_2023-02-08-00-06-53/seed_3"
 
@@ -409,7 +409,7 @@ if __name__ == "__main__":
 
 
     ##### IQN cvar = 0.5 #####
-    test_env_2 = marinenav_env.MarineNavEnv(seed)
+    test_env_2 = marinenav_env.MarineNavEnv2(seed)
 
     save_dir = "training_data/training_2023-02-08-00-06-53/seed_3"
 
@@ -425,7 +425,7 @@ if __name__ == "__main__":
 
 
     ##### IQN cvar = 0.75 #####
-    test_env_3 = marinenav_env.MarineNavEnv(seed)
+    test_env_3 = marinenav_env.MarineNavEnv2(seed)
 
     save_dir = "training_data/training_2023-02-08-00-06-53/seed_3"
 
@@ -441,7 +441,7 @@ if __name__ == "__main__":
     
 
     ##### IQN cvar = 1.0 (greedy) #####
-    test_env_4 = marinenav_env.MarineNavEnv(seed)
+    test_env_4 = marinenav_env.MarineNavEnv2(seed)
 
     save_dir = "training_data/training_2023-02-08-00-06-53/seed_3"
 
@@ -457,7 +457,7 @@ if __name__ == "__main__":
 
 
     ##### DQN #####
-    test_env_5 = marinenav_env.MarineNavEnv(seed)
+    test_env_5 = marinenav_env.MarineNavEnv2(seed)
     
     save_dir = "training_data/training_2023-02-08-00-13-06/seed_3"
     model_file = "latest_model.zip"
@@ -469,14 +469,14 @@ if __name__ == "__main__":
 
 
     ##### APF #####
-    test_env_6 = marinenav_env.MarineNavEnv(seed)
+    test_env_6 = marinenav_env.MarineNavEnv2(seed)
     
     APF_agent = APF.APF_agent(test_env_6.robot.a,test_env_6.robot.w)
     ##### APF #####
 
 
     ##### BA #####
-    test_env_7 = marinenav_env.MarineNavEnv(seed)
+    test_env_7 = marinenav_env.MarineNavEnv2(seed)
     
     BA_agent = BA.BA_agent(test_env_7.robot.a,test_env_7.robot.w)
     ##### BA #####

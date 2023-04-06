@@ -22,20 +22,15 @@ class Obstacle:
         self.y = y # y coordinate of the obstacle center
         self.r = r # radius of the obstacle    
 
-class MarineNavEnv(gym.Env):
+class MarineNavEnv2(gym.Env):
 
     def __init__(self, seed:int=0, schedule:dict=None):
 
-        self.robot = robot.Robot()
         self.sd = seed
         self.rd = np.random.RandomState(seed) # PRNG 
 
         # Define action space and observation space for gym
-        self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
-        obs_len = 2 + 2 + 2 * self.robot.sonar.num_beams
-        self.observation_space = gym.spaces.Box(low = -np.inf * np.ones(obs_len), \
-                                                high = np.inf * np.ones(obs_len), \
-                                                dtype = np.float32)
+        # self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
         
         # parameter initialization
         self.width = 50 # x coordinate dimension of the map
@@ -44,37 +39,37 @@ class MarineNavEnv(gym.Env):
         self.v_rel_max = 1.0 # max allowable speed when two currents flowing towards each other
         self.p = 0.8 # max allowable relative speed at another vortex core
         self.v_range = [5,10] # speed range of the vortex (at the edge of core)
-        self.obs_r_range = [1,3] # radius range of the obstacle
-        self.clear_r = 10.0 # radius of area centered at start and goal where no vortex cores or obstacles exist
+        self.obs_r_range = [1,1] # radius range of the obstacle
+        self.clear_r = 5.0 # radius of area centered at the start(goal) of each robot,
+                           # where no vortex cores, static obstacles, or the start(goal) of other robots exist
         self.reset_start_and_goal = True # if the start and goal position be set randomly in reset()
         self.start = np.array([5.0,5.0]) # robot start position
-        self.random_reset_state = True # if initial state of the robot be set randomly in reset_robot()
-        self.init_speed = 0.0 # robot initial forword speed
-        self.init_theta = np.pi/4 # robot initial orientation angle
         self.goal = np.array([45.0,45.0]) # goal position
         self.goal_dis = 2.0 # max distance to goal considered as reached
         self.timestep_penalty = -1.0
-        # self.dist_reward = self.robot.compute_dist_reward_scale()
-        # self.energy_penalty = self.robot.compute_penalty_matrix()
-        # self.angle_penalty = -0.5
         self.collision_penalty = -50.0
         self.goal_reward = 100.0
         self.discount = 0.99
-        self.num_cores = 8
-        self.num_obs = 5
-        self.min_start_goal_dis = 25.0
+        self.num_cores = 8 # number of vortices
+        self.num_obs = 8 # number of static obstacles
+        self.min_start_goal_dis = 30.0
+        self.num_cooperative = 3 # number of cooperative robots
+        self.num_non_cooperative = 3 # number of non-cooperative robots
 
-        self.cores = [] # vortex cores
-        self.obstacles = [] # cylinder obstacles
+        self.robots = [] # list of robots
+        for _ in range(self.num_cooperative):
+            self.robots.append(robot.Robot(cooperative=True))
+        for _ in range(self.num_non_cooperative):
+            self.robots.append(robot.Robot(cooperative=False))
+        
+        self.cores = [] # list of vortex cores
+        self.obstacles = [] # list of static obstacles
 
         self.schedule = schedule # schedule for curriculum learning
         self.episode_timesteps = 0 # current episode timesteps
         self.total_timesteps = 0 # learning timesteps
 
         self.set_boundary = False # set boundary of environment
-
-    def get_state_space_dimension(self):
-        return 2 + 2 + 2 * self.robot.sonar.num_beams
     
     def get_action_space_dimension(self):
         return self.robot.compute_actions_dimension()
@@ -103,26 +98,31 @@ class MarineNavEnv(gym.Env):
 
         self.cores.clear()
         self.obstacles.clear()
+        self.robots.clear()
 
         num_cores = self.num_cores
         num_obs = self.num_obs
+        robot_types = [True]*self.num_cooperative + [False]*self.num_non_cooperative
+        assert len(robot_types) > 0, "Number of robots is 0!"
 
-        if self.reset_start_and_goal:
-        # reset start and goal state randomly
-            iteration = 500
-            max_dist = 0.0
-            while True:
-                start = self.rd.uniform(low = 2.0*np.ones(2), high = np.array([self.width-2.0,self.height-2.0]))
-                goal = self.rd.uniform(low = 2.0*np.ones(2), high = np.array([self.width-2.0,self.height-2.0]))
-                iteration -= 1
-                if np.linalg.norm(goal-start) > max_dist:
-                    max_dist = np.linalg.norm(goal-start)
-                    self.start = start
-                    self.goal = goal
-                if max_dist > self.min_start_goal_dis or iteration == 0:
-                    break
+        ##### generate robots with randomly generated start and goal 
+        num_robots = 0
+        iteration = 500
+        while True:
+            start = self.rd.uniform(low = 2.0*np.ones(2), high = np.array([self.width-2.0,self.height-2.0]))
+            goal = self.rd.uniform(low = 2.0*np.ones(2), high = np.array([self.width-2.0,self.height-2.0]))
+            iteration -= 1
+            if self.check_start_and_goal(start,goal):
+                rob = robot.Robot(robot_types[num_robots])
+                rob.start = start
+                rob.goal = goal
+                self.reset_robot(rob)
+                self.robots.append(rob)
+                num_robots += 1
+            if iteration == 0 or num_robots == len(robot_types):
+                break
 
-        # generate vortex with random position, spinning direction and strength
+        ##### generate vortex with random position, spinning direction and strength
         if num_cores > 0:
             iteration = 500
             while True:
@@ -150,7 +150,7 @@ class MarineNavEnv(gym.Env):
         if centers is not None:
             self.core_centers = scipy.spatial.KDTree(centers)
 
-        # generate obstacles with random position and size
+        ##### generate static obstacles with random position and size
         if num_obs > 0:
             iteration = 500
             while True:
@@ -163,36 +163,19 @@ class MarineNavEnv(gym.Env):
                     num_obs -= 1
                 if iteration == 0 or num_obs == 0:
                     break
-
-        centers = None
-        for obs in self.obstacles:
-            if centers is None:
-                centers = np.array([[obs.x,obs.y]])
-            else:
-                c = np.array([[obs.x,obs.y]])
-                centers = np.vstack((centers,c))
         
-        # KDTree storing obstacle center positions
-        if centers is not None: 
-            self.obs_centers = scipy.spatial.KDTree(centers)
+        # TODO: check get_observations
+        # return self.get_observations()
 
+    def reset_robot(self,robot):
         # reset robot state
-        self.reset_robot()
-
-        return self.get_observation()
-
-    def reset_robot(self):
-        # reset robot state
-        if self.random_reset_state:
-            self.robot.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
-            self.robot.init_speed = self.rd.uniform(low = 0.0, high = self.robot.max_speed)
-        else:
-            self.robot.init_theta = self.init_theta
-            self.robot.init_speed = self.init_speed
-        current_v = self.get_velocity(self.start[0],self.start[1])
-        self.robot.reset_state(self.start[0],self.start[1], current_velocity=current_v)
+        robot.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
+        robot.init_speed = self.rd.uniform(low = 0.0, high = robot.max_speed)
+        current_v = self.get_velocity(robot.start[0],robot.start[1])
+        robot.reset_state(current_velocity=current_v)
 
     def step(self, action):
+        # TODO: rewrite step function to update state of all robots, generate corresponding observations and rewards
         # execute action, update the environment, and return (obs, reward, done)
 
         # save action to history
@@ -266,69 +249,21 @@ class MarineNavEnv(gym.Env):
     def dist_to_goal(self):
         return np.linalg.norm(self.goal - np.array([self.robot.x,self.robot.y]))
 
-    def get_observation(self, for_visualize=False):
-
-        # generate observation (1.vehicle velocity wrt seafloor in robot frame by DVL, 
-        #                       2.obstacle reflection point clouds in robot frame by Sonar,
-        #                       3.goal position in robot frame)
-        self.robot.sonar_reflection(self.obstacles)
-
-        # convert information in world frame to robot frame
-        R_wr, t_wr = self.robot.get_robot_transform()
-
-        R_rw = np.transpose(R_wr)
-        t_rw = -R_rw * t_wr
-
-        # vehicle velocity wrt seafloor in robot frame
-        abs_velocity_r = R_rw * np.reshape(self.robot.velocity,(2,1))
-        abs_velocity_r.resize((2,))
-        abs_velocity_r = np.array(abs_velocity_r)
-
-        # goal position in robot frame
-        goal_w = np.reshape(self.goal,(2,1))
-        goal_r = R_rw * goal_w + t_rw
-        goal_r.resize((2,))
-        goal_r = np.array(goal_r)
-
-        # obstacle reflection point clouds in robot frame
-        if for_visualize:
-            sonar_points_r = None
-            for point in self.robot.sonar.reflections:
-                p = np.reshape(point,(3,1))
-                p[:2] = R_rw * p[:2] + t_rw
-                if sonar_points_r is None:
-                    sonar_points_r = p
-                else:
-                    sonar_points_r = np.hstack((sonar_points_r,p))
-
-            return abs_velocity_r, sonar_points_r, goal_r
-        else:
-            # set virtual points as (0,0), and concatenate all observations 
-            # into one vector
-            sonar_points_r = None
-            for point in self.robot.sonar.reflections:
-                p = np.reshape(point,(3,1))
-                if p[2] == 0:
-                    p_r = np.zeros(2)
-                else:
-                    p_r = R_rw * p[:2] + t_rw
-                    p_r.resize((2,))
-                    p_r = np.array(p_r)
-                if sonar_points_r is None:
-                    sonar_points_r = p_r
-                else:
-                    sonar_points_r = np.hstack((sonar_points_r,p_r))
-
-            return np.hstack((abs_velocity_r,goal_r,sonar_points_r))
-
+    def get_observations(self):
+        observations = []
+        for robot in self.robots:
+            robot.perception_output(self.obstacles,self.robots)
+            observations.append(copy.deepcopy(robot.perception.observation))
+        return observations
 
     def check_collision(self):
         if len(self.obstacles) == 0:
             return False
         
-        d, idx = self.obs_centers.query(np.array([self.robot.x,self.robot.y]))
-        if d <= self.obstacles[idx].r + self.robot.r:
-            return True
+        for obs in self.obstacles:
+            d = np.sqrt((self.robot.x-obs.x)**2+(self.robot.y-obs.y)**2)
+            if d <= obs.r + self.robot.r:
+                return True
         return False
 
     def check_reach_goal(self):
@@ -336,6 +271,26 @@ class MarineNavEnv(gym.Env):
         if np.linalg.norm(dis) <= self.goal_dis:
             return True
         return False
+    
+    def check_start_and_goal(self,start,goal):
+        
+        # The start and goal point is far enough
+        if np.linalg.norm(goal-start) < self.min_start_goal_dis:
+            return False
+        
+        for robot in self.robots:
+            
+            dis_s = robot.start - start
+            # Start point not too close to that of existing robots
+            if np.linalg.norm(dis_s) <= self.clear_r:
+                return False
+            
+            dis_g = robot.goal - goal
+            # Goal point not too close to that of existing robots
+            if np.linalg.norm(dis_g) <= self.clear_r:
+                return False
+        
+        return True
     
     def check_core(self,core_j):
 
@@ -345,14 +300,15 @@ class MarineNavEnv(gym.Env):
         if core_j.y - self.r < 0.0 or core_j.y + self.r > self.width:
             return False
 
-        # Not too close to start and goal point
-        core_pos = np.array([core_j.x,core_j.y])
-        dis_s = core_pos - self.start
-        if np.linalg.norm(dis_s) < self.r + self.clear_r:
-            return False
-        dis_g = core_pos - self.goal
-        if np.linalg.norm(dis_g) < self.r + self.clear_r:
-            return False
+        for robot in self.robots:
+            # Not too close to start and goal point of each robot
+            core_pos = np.array([core_j.x,core_j.y])
+            dis_s = core_pos - robot.start
+            if np.linalg.norm(dis_s) < self.r + self.clear_r:
+                return False
+            dis_g = core_pos - robot.goal
+            if np.linalg.norm(dis_g) < self.r + self.clear_r:
+                return False
 
         for core_i in self.cores:
             dx = core_i.x - core_j.x
@@ -386,14 +342,15 @@ class MarineNavEnv(gym.Env):
         if obs.y - obs.r < 0.0 or obs.y + obs.r > self.height:
             return False
 
-        # Not too close to start and goal point
-        obs_pos = np.array([obs.x,obs.y])
-        dis_s = obs_pos - self.start
-        if np.linalg.norm(dis_s) < obs.r + self.clear_r:
-            return False
-        dis_g = obs_pos - self.goal
-        if np.linalg.norm(dis_g) < obs.r + self.clear_r:
-            return False
+        for robot in self.robots:
+            # Not too close to start and goal point
+            obs_pos = np.array([obs.x,obs.y])
+            dis_s = obs_pos - robot.start
+            if np.linalg.norm(dis_s) < obs.r + self.clear_r:
+                return False
+            dis_g = obs_pos - robot.goal
+            if np.linalg.norm(dis_g) < obs.r + self.clear_r:
+                return False
 
         # Not collide with vortex cores
         for core in self.cores:
@@ -501,20 +458,12 @@ class MarineNavEnv(gym.Env):
 
         # load obstacles
         self.obstacles.clear()
-        centers = None
         for i in range(len(eval_config["env"]["obstacles"]["positions"])):
             center = eval_config["env"]["obstacles"]["positions"][i]
             r = eval_config["env"]["obstacles"]["r"][i]
             obs = Obstacle(center[0],center[1],r)
             self.obstacles.append(obs)
-            if centers is None:
-                centers = np.array([[obs.x,obs.y]])
-            else:
-                c = np.array([[obs.x,obs.y]])
-                centers = np.vstack((centers,c))
 
-        if centers is not None:
-            self.obs_centers = scipy.spatial.KDTree(centers)
 
         # load robot config
         self.robot.dt = eval_config["robot"]["dt"]
@@ -527,19 +476,17 @@ class MarineNavEnv(gym.Env):
         self.robot.w = np.array(eval_config["robot"]["w"])
         self.robot.compute_k()
         self.robot.compute_actions()
-        self.robot.init_theta = eval_config["robot"]["init_theta"]
-        self.robot.init_speed = eval_config["robot"]["init_speed"]
 
-        # load sonar config
-        self.robot.sonar.range = eval_config["robot"]["sonar"]["range"]
-        self.robot.sonar.angle = eval_config["robot"]["sonar"]["angle"]
-        self.robot.sonar.num_beams = eval_config["robot"]["sonar"]["num_beams"]
-        self.robot.sonar.compute_phi()
-        self.robot.sonar.compute_beam_angles()
+        # load perception config
+        self.robot.perception.range = eval_config["robot"]["perception"]["range"]
+        self.robot.perception.angle = eval_config["robot"]["perception"]["angle"]
+        self.robot.perception.num_beams = eval_config["robot"]["perception"]["num_beams"]
+        self.robot.perception.compute_phi()
+        self.robot.perception.compute_beam_angles()
 
         # update env action and observation space
         self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
-        obs_len = 2 + 2 + 2 * self.robot.sonar.num_beams
+        obs_len = 2 + 2 + 2 * self.robot.perception.num_beams
         self.observation_space = gym.spaces.Box(low = -np.inf * np.ones(obs_len), \
                                                     high = np.inf * np.ones(obs_len), \
                                                     dtype = np.float32)
@@ -602,14 +549,12 @@ class MarineNavEnv(gym.Env):
         episode["robot"]["max_speed"] = self.robot.max_speed
         episode["robot"]["a"] = list(self.robot.a)
         episode["robot"]["w"] = list(self.robot.w)
-        episode["robot"]["init_theta"] = self.robot.init_theta
-        episode["robot"]["init_speed"] = self.robot.init_speed
 
-        # save sonar config
-        episode["robot"]["sonar"] = {}
-        episode["robot"]["sonar"]["range"] = self.robot.sonar.range
-        episode["robot"]["sonar"]["angle"] = self.robot.sonar.angle
-        episode["robot"]["sonar"]["num_beams"] = self.robot.sonar.num_beams
+        # save perception config
+        episode["robot"]["perception"] = {}
+        episode["robot"]["perception"]["range"] = self.robot.perception.range
+        episode["robot"]["perception"]["angle"] = self.robot.perception.angle
+        episode["robot"]["perception"]["num_beams"] = self.robot.perception.num_beams
 
         # save action history
         episode["robot"]["action_history"] = copy.deepcopy(self.robot.action_history)

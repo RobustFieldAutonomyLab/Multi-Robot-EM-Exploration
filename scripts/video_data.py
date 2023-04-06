@@ -105,7 +105,7 @@ agents = ["adaptive_IQN","DQN","APF","BA"]
 
 for agent in agents:
     seed = 15
-    test_env = marinenav_env.MarineNavEnv(seed)
+    test_env = marinenav_env.MarineNavEnv2(seed)
     observation = test_env.reset_with_eval_config(config)
 
     if agent == "adaptive_IQN":
