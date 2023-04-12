@@ -1,21 +1,29 @@
 import numpy as np
+import copy
 
 class Perception:
 
-    def __init__(self):
+    def __init__(self,cooperative:bool=False):
         # 2D LiDAR model with detection area as a sector
-        self.range = 10.0 # range of beams (meter)
-        self.angle = 2 * np.pi / 3 # detection angle range
-        self.num_beams = 61 # number of beams (asssume each is a line)
+        self.range = 15.0 # range of beams (meter)
+        self.angle = 2 * np.pi # detection angle range
+        self.num_beams = 181 # number of beams (asssume each is a line)
         self.compute_phi() # interval angle between two beams
         self.compute_beam_angles() # relative angles to the center
         self.reflections = [] # LiDAR reflection point, indicator (0: nothing, 1: static, 2: dyanmic), and object index
         self.max_obs = 5 # the window size of observation history
-        self.observation = {} # format: {"self": [velocity,goal], 
-                               #          "static":[[obs_1.x,obs_1.y,obs_1.r],...,[obs_n.x,obs_n.y,obs_n.r]],
-                               #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}} 
+        self.observation_format(cooperative)
         self.observed_obs = [] # indices of observed static obstacles
         self.observed_objs = [] # indiced of observed dynamic objects
+
+    def observation_format(self,cooperative:bool=False):
+        # format: {"self": [velocity,goal], 
+        #          "static":[[obs_1.x,obs_1.y,obs_1.r],...,[obs_n.x,obs_n.y,obs_n.r]],
+        #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}}
+        if cooperative:
+            self.observation = dict(self=[],static=[],dynamic={})
+        else:
+            self.observation = dict(self=[],static=[])
 
     def compute_phi(self):
         self.phi = self.angle / (self.num_beams-1)
@@ -32,9 +40,9 @@ class Robot:
         
         # parameter initialization
         self.cooperative = cooperative # if the robot is cooperative or not
-        self.dt = 0.1 # discretized time step (second)
+        self.dt = 0.05 # discretized time step (second)
         self.N = 10 # number of time step per action
-        self.perception = Perception()
+        self.perception = Perception(cooperative)
         self.length = 1.0 
         self.width = 0.5
         self.r = 0.8 # collision distance
@@ -86,6 +94,9 @@ class Robot:
         a /= np.max(self.a)
         w /= np.max(self.w)
         return np.abs(a) + np.abs(w)
+    
+    def dist_to_goal(self):
+        return np.linalg.norm(self.goal - np.array([self.x,self.y]))
 
     def reset_state(self,current_velocity=np.zeros(2)):
         # only called when resetting the environment
@@ -195,16 +206,13 @@ class Robot:
         else:
             x_r = R_rw * x_r + t_rw
 
-        return np.array(x_r.resize((2,)))            
+        x_r.resize((2,))
+        return np.array(x_r)            
 
 
     def perception_output(self,obstacles,robots):
         self.perception.reflections.clear()
-
-        self.perception.observation.clear()
-        self.perception.observation["static"] = []
-        if self.cooperative:
-            self.perception.observation["dynamic"] = []
+        self.perception.observation["static"].clear()
 
         ##### self observation (velocity and goal in self frame) #####
         # vehicle velocity wrt seafloor in self frame
@@ -220,6 +228,7 @@ class Robot:
         self.perception.observed_obs.clear()
         if self.cooperative:
             self.perception.observed_objs.clear()
+
         for rel_a in self.perception.beam_angles:
             angle = self.theta + rel_a
 
@@ -273,7 +282,7 @@ class Robot:
                 reflection_dist = np.linalg.norm(p)
                 self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,2,j]
 
-            tp = self.perception.reflections[-1][2] == 1
+            tp = self.perception.reflections[-1][2]
             idx = self.perception.reflections[-1][-1]
 
             if tp == 1:
@@ -281,17 +290,17 @@ class Robot:
                     # add the new static object observation into the observation
                     self.perception.observed_obs.append(idx)
                     obs = obstacles[idx]
-                    pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]))
+                    pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
                     self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
             elif tp == 2 and self.cooperative:
                 if idx not in self.perception.observed_objs:
                     # In a cooperative agent, also include dynamic object observation
                     self.perception.observed_objs.append(idx)
                     robot = robots[idx]
-                    pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]))
+                    pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
                     v_r = self.project_to_robot_frame(robot.velocity)
                     new_obs = list(np.concatenate((pos_r,v_r)))
-                    if idx in self.perception.observation["dynamic"]:
+                    if idx in self.perception.observation["dynamic"].keys():
                         self.perception.observation["dynamic"][idx].append(new_obs)
                         while len(self.perception.observation["dynamic"][idx]) > self.perception.max_obs:
                             del self.perception.observation["dynamic"][idx][0]
@@ -304,6 +313,12 @@ class Robot:
                     # remove the observation history if the object is not observed in the current step
                     del self.perception.observation["dynamic"][idx]
 
+        observation = copy.deepcopy(self.perception.observation)
+        if self.cooperative:
+            # remove object indices 
+            observation["dynamic"] = list(observation["dynamic"].values())
+
+        return observation
 
 
 

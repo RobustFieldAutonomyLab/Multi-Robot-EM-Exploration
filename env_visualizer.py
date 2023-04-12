@@ -28,11 +28,11 @@ class EnvVisualizer:
         self.robots_plot = []
         self.robots_last_pos = []
         self.robots_traj_plot = []
-        self.sonar_beams_plot = []
+        self.LiDAR_beams_plot = []
         self.axis_title = None # sub figure for title
         self.axis_action = None # sub figure for action command and steer data
         self.axis_goal = None # sub figure for relative goal measurment
-        self.axis_sonar = None # sub figure for Sonar measurement
+        self.axis_perception = None # sub figure for perception output
         self.axis_dvl = None # sub figure for DVL measurement
         self.axis_dist = [] # sub figure(s) for return distribution of actions
         self.axis_qvalues = None # subfigure for Q values of actions
@@ -81,7 +81,7 @@ class EnvVisualizer:
                 self.axis_title.text(-0.9,-0.5,"2. Risk sensitivity increases when approaching obstacles",fontsize=20)
 
                 self.axis_goal = self.fig.add_subplot(spec[2,0])
-                self.axis_sonar = self.fig.add_subplot(spec[3:5,0])
+                self.axis_perception = self.fig.add_subplot(spec[3:5,0])
                 self.axis_dvl = self.fig.add_subplot(spec[5:,0])
                 self.axis_graph = self.fig.add_subplot(spec[2:,1:3])
                 for i in range(self.cvar_num):
@@ -94,7 +94,7 @@ class EnvVisualizer:
                 self.axis_title.text(-0.9,-0.5,"Robust to current disturbance in robot motion, but not cautious enough when approaching obstacles", fontsize=20)
 
                 self.axis_goal = self.fig.add_subplot(spec[3:5,0])
-                self.axis_sonar = self.fig.add_subplot(spec[5:9,0])
+                self.axis_perception = self.fig.add_subplot(spec[5:9,0])
                 self.axis_dvl = self.fig.add_subplot(spec[9:,0])
                 self.axis_graph = self.fig.add_subplot(spec[3:,1:3])
                 self.axis_qvalues = self.fig.add_subplot(spec[3:,3])
@@ -119,7 +119,7 @@ class EnvVisualizer:
                 self.left_margin.spines["bottom"].set_visible(False)
 
                 self.axis_goal = self.fig.add_subplot(spec[3:5,1:3])
-                self.axis_sonar = self.fig.add_subplot(spec[5:9,1:3])
+                self.axis_perception = self.fig.add_subplot(spec[5:9,1:3])
                 self.axis_dvl = self.fig.add_subplot(spec[9:,1:3])
                 self.axis_graph = self.fig.add_subplot(spec[3:,3:7])
                 self.axis_action = self.fig.add_subplot(spec[5:9,7])
@@ -134,12 +134,13 @@ class EnvVisualizer:
             self.axis_title.spines["bottom"].set_visible(False)
         else:
             # Mode 1 (default): Display an episode
-            self.fig = plt.figure(figsize=(24,16))
-            spec = self.fig.add_gridspec(5,3)
+            self.fig = plt.figure(figsize=(32,16))
+            spec = self.fig.add_gridspec(5,4)
             self.axis_graph = self.fig.add_subplot(spec[:,:2])
-            self.axis_action = self.fig.add_subplot(spec[0,2])
-            self.axis_sonar = self.fig.add_subplot(spec[1:3,2])
+            self.axis_goal = self.fig.add_subplot(spec[0,2])
+            self.axis_perception = self.fig.add_subplot(spec[1:3,2])
             self.axis_dvl = self.fig.add_subplot(spec[3:,2])
+            self.axis_observation = self.fig.add_subplot(spec[:,3])
 
 
         if self.draw_envs and env_configs is not None:
@@ -221,7 +222,8 @@ class EnvVisualizer:
     
     def plot_robots(self):
         for robot_plot in self.robots_plot:
-            robot_plot[0].remove()
+            robot_plot.remove()
+        self.robots_plot.clear()
 
         for i,robot in enumerate(self.env.robots):
             d = np.matrix([[0.5*robot.length],[0.5*robot.width]])
@@ -235,6 +237,10 @@ class EnvVisualizer:
             self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Rectangle(xy,robot.length, \
                                                               robot.width, color=c, \
                                                               angle=angle_d,zorder=7)))
+            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Circle((robot.x,robot.y), \
+                                                              robot.perception.range, color=c,
+                                                              alpha=0.2)))
+            self.robots_plot.append(self.axis_graph.text(robot.x-1,robot.y+1,str(i),color="yellow",fontsize=15))
 
             if self.robots_last_pos[i] != []:
                 h = self.axis_graph.plot((self.robots_last_pos[i][0],robot.x),
@@ -273,67 +279,107 @@ class EnvVisualizer:
         self.axis_action.spines["right"].set_visible(False)
         self.axis_action.spines["bottom"].set_visible(False)
 
-    def plot_measurements(self):
-        self.axis_sonar.clear()
+    def plot_measurements(self,robot_idx):
+        self.axis_perception.clear()
+        self.axis_observation.clear()
         self.axis_dvl.clear()
-        for plot in self.sonar_beams_plot:
+        self.axis_goal.clear()
+        for plot in self.LiDAR_beams_plot:
             plot[0].remove()
-        self.sonar_beams_plot.clear()
-        if self.video_plots:
-            self.axis_goal.clear()
+        self.LiDAR_beams_plot.clear()
+
+        rob = self.env.robots[robot_idx]
 
         legend_size = 12
         font_size = 15
         
-        abs_velocity_r, sonar_points_r, goal_r = self.env.get_observation(for_visualize=True)
+        observation = rob.perception_output(self.env.obstacles,self.env.robots)
         
-        # plot Sonar beams in the world frame
-        for point in self.env.robot.sonar.reflections:
-            x = point[0]
-            y = point[1]
-            if point[-1] == 0:
-                # compute beam range end point 
-                x = self.env.robot.x + 0.5 * (x-self.env.robot.x)
-                y = self.env.robot.y + 0.5 * (y-self.env.robot.y)
-            else:
-                # mark the reflection point
-                self.sonar_beams_plot.append(self.axis_graph.plot(x,y,marker='x',color='r',zorder=6))
+        # # plot Sonar beams in the world frame
+        # for point in self.env.robot.sonar.reflections:
+        #     x = point[0]
+        #     y = point[1]
+        #     if point[-1] == 0:
+        #         # compute beam range end point 
+        #         x = self.env.robot.x + 0.5 * (x-self.env.robot.x)
+        #         y = self.env.robot.y + 0.5 * (y-self.env.robot.y)
+        #     else:
+        #         # mark the reflection point
+        #         self.LiDAR_beams_plot.append(self.axis_graph.plot(x,y,marker='x',color='r',zorder=6))
 
-            self.sonar_beams_plot.append(self.axis_graph.plot([self.env.robot.x,x],[self.env.robot.y,y],linestyle='--',color='r',zorder=6))
+        #     self.LiDAR_beams_plot.append(self.axis_graph.plot([self.env.robot.x,x],[self.env.robot.y,y],linestyle='--',color='r',zorder=6))
 
-        # plot Sonar reflections in the robot frame (rotate x-axis by 90 degree (upward) in the plot)
-        low_angle = np.pi/2 + self.env.robot.sonar.beam_angles[0]
-        high_angle = np.pi/2 + self.env.robot.sonar.beam_angles[-1]
-        low_angle_d = low_angle / np.pi * 180
-        high_angle_d = high_angle / np.pi * 180
-        self.axis_sonar.add_patch(mpl.patches.Wedge((0.0,0.0),self.env.robot.sonar.range, \
-                                               low_angle_d,high_angle_d,color="r",alpha=0.2))
+
+        # plot detected objects in the robot frame (rotate x-axis by 90 degree (upward) in the plot)
+        c = 'g' if rob.cooperative else 'r'
+        self.axis_perception.add_patch(mpl.patches.Circle((0,0), \
+                                       rob.perception.range, color=c, \
+                                       alpha = 0.2))
         
-        for i in range(np.shape(sonar_points_r)[1]):
-            if sonar_points_r[2,i] == 1:
-                # rotate by 90 degree 
-                self.axis_sonar.plot(-sonar_points_r[1,i],sonar_points_r[0,i],'bo',markersize=6)
+        x_pos = 0
+        y_pos = 0
 
-        self.axis_sonar.set_xlim([-self.env.robot.sonar.range-1,self.env.robot.sonar.range+1])
-        self.axis_sonar.set_ylim([-1,self.env.robot.sonar.range+1])
-        self.axis_sonar.set_aspect('equal')
-        self.axis_sonar.set_title('LiDAR Reflections',fontsize=font_size)
+        for i,obj_history in enumerate(observation["dynamic"]):
+            # plot the current position
+            pos = obj_history[-1][:2]
+            # rotate by 90 degree
+            self.axis_perception.add_patch(mpl.patches.Circle((-pos[1],pos[0]), \
+                                           rob.detect_r, color="b"))
+            # include history into observation info
+            for ob in obj_history:
+                self.axis_observation.text(x_pos,y_pos,f"position: ({ob[0]:.2f},{ob[1]:.2f}), velocity: ({ob[2]:.2f},{ob[3]:.2f})")
+                y_pos += 1
+            
+            self.axis_observation.text(x_pos,y_pos,f"Object {i} history",fontweight="bold",fontsize=15)
+            y_pos += 2
+        
+        self.axis_observation.text(x_pos,y_pos,"Dynamic objects",fontweight="bold",fontsize=15)
+        y_pos += 2
 
-        self.axis_sonar.set_xticks([])
-        self.axis_sonar.set_yticks([])
-        self.axis_sonar.spines["left"].set_visible(False)
-        self.axis_sonar.spines["top"].set_visible(False)
-        self.axis_sonar.spines["right"].set_visible(False)
-        self.axis_sonar.spines["bottom"].set_visible(False)
+        for i,obs in enumerate(observation["static"]):
+            # rotate by 90 degree 
+            self.axis_perception.add_patch(mpl.patches.Circle((-obs[1],obs[0]), \
+                                           obs[2], color="m"))
+            # include into observation info
+            self.axis_observation.text(x_pos,y_pos,f"Obstacles {i} position: ({obs[0]:.2f},{obs[1]:.2f}), radius: {obs[2]:.2f}")
+            y_pos += 1
+        
+        self.axis_observation.text(x_pos,y_pos,"Static obstacles",fontweight="bold",fontsize=15)
+        y_pos += 1
+
+        type = "cooperative" if rob.cooperative else "non-cooperative"
+        self.axis_observation.text(x_pos,y_pos,f"Showing the observation of robot {robot_idx} ({type})",fontweight="bold",fontsize=20)
+
+        self.axis_perception.set_xlim([-rob.perception.range-1,rob.perception.range+1])
+        self.axis_perception.set_ylim([-rob.perception.range-1,rob.perception.range+1])
+        self.axis_perception.set_aspect('equal')
+        self.axis_perception.set_title('Perception output',fontsize=font_size)
+
+        self.axis_perception.set_xticks([])
+        self.axis_perception.set_yticks([])
+        self.axis_perception.spines["left"].set_visible(False)
+        self.axis_perception.spines["top"].set_visible(False)
+        self.axis_perception.spines["right"].set_visible(False)
+        self.axis_perception.spines["bottom"].set_visible(False)
+
+        self.axis_observation.set_ylim([-1,y_pos+1])
+        self.axis_observation.set_xticks([])
+        self.axis_observation.set_yticks([])
+        self.axis_observation.spines["left"].set_visible(False)
+        self.axis_observation.spines["top"].set_visible(False)
+        self.axis_observation.spines["right"].set_visible(False)
+        self.axis_observation.spines["bottom"].set_visible(False)
+
 
         # plot robot velocity in the robot frame (rotate x-axis by 90 degree (upward) in the plot)
+        abs_velocity_r = observation["self"][2:]
         h1 = self.axis_dvl.arrow(0.0,0.0,0.0,1.0, \
                        color='k', \
                        width = 0.02, \
                        head_width = 0.08, \
                        head_length = 0.12, \
                        length_includes_head=True, \
-                       label='steer direction')
+                       label='steering direction')
         # rotate by 90 degree
         h2 = self.axis_dvl.arrow(0.0,0.0,-abs_velocity_r[1],abs_velocity_r[0], \
                        color='r',width=0.02, head_width = 0.08, \
@@ -355,19 +401,20 @@ class EnvVisualizer:
         self.axis_dvl.spines["right"].set_visible(False)
         self.axis_dvl.spines["bottom"].set_visible(False)
 
-        if self.video_plots:
-            # give goal position info in the robot frame
-            x1 = 0.07
-            x2 = x1 + 0.13
-            self.axis_goal.text(x1,0.5,"Goal Position (Relative)",fontsize=font_size)
-            self.axis_goal.text(x2,0.25,f"({goal_r[0]:.2f}, {goal_r[1]:.2f})",fontsize=font_size)
 
-            self.axis_goal.set_xticks([])
-            self.axis_goal.set_yticks([])
-            self.axis_goal.spines["left"].set_visible(False)
-            self.axis_goal.spines["top"].set_visible(False)
-            self.axis_goal.spines["right"].set_visible(False)
-            self.axis_goal.spines["bottom"].set_visible(False)
+        # give goal position info in the robot frame
+        goal_r = observation["self"][:2]
+        x1 = 0.07
+        x2 = x1 + 0.13
+        self.axis_goal.text(x1,0.5,"Goal Position (Relative)",fontsize=font_size)
+        self.axis_goal.text(x2,0.25,f"({goal_r[0]:.2f}, {goal_r[1]:.2f})",fontsize=font_size)
+
+        self.axis_goal.set_xticks([])
+        self.axis_goal.set_yticks([])
+        self.axis_goal.spines["left"].set_visible(False)
+        self.axis_goal.spines["top"].set_visible(False)
+        self.axis_goal.spines["right"].set_visible(False)
+        self.axis_goal.spines["bottom"].set_visible(False)
 
     def plot_return_dist(self,action):
         for axis in self.axis_dist:
@@ -448,16 +495,19 @@ class EnvVisualizer:
         self.axis_qvalues.set_yticklabels(labels=ylabelright,fontsize=14)
         self.axis_qvalues.set_xlim([np.min(q_values)-5,np.max(q_values)+5])
 
-    def one_step(self,action):
-        current_velocity = self.env.get_velocity(self.env.robot.x, self.env.robot.y)
-        self.env.robot.update_state(action["action"],current_velocity)
+    def one_step(self,actions,robot_idx=0):
+        assert len(actions) == len(self.env.robots), "Number of actions not equal number of robots!"
+        for i,action in enumerate(actions):
+            rob = self.env.robots[i]
+            current_velocity = self.env.get_velocity(rob.x, rob.y)
+            rob.update_state(action,current_velocity)
 
-        self.plot_robot()
-        self.plot_measurements()
-        if not self.plot_dist and not self.plot_qvalues:
-            self.plot_action_and_steer_state(action["action"])
+        self.plot_robots()
+        self.plot_measurements(robot_idx)
+        # if not self.plot_dist and not self.plot_qvalues:
+        #     self.plot_action_and_steer_state(action["action"])
         
-        if self.step % self.env.robot.N == 0:
+        if self.step % self.env.robots[0].N == 0:
             if self.plot_dist:
                 self.plot_return_dist(action)
             elif self.plot_qvalues:
@@ -467,10 +517,10 @@ class EnvVisualizer:
 
     def init_animation(self):
         # plot initial robot position
-        self.plot_robot()
+        self.plot_robots()
 
-        # plot initial DVL and Sonar measurments
-        self.plot_measurements() 
+        # plot initial measurments
+        # self.plot_measurements() 
 
     def visualize_control(self,action_sequence,start_idx=0):
         # update robot state and make animation when executing action sequence
@@ -480,27 +530,29 @@ class EnvVisualizer:
         self.step = start_idx
         
         for i,a in enumerate(action_sequence):
-            for _ in range(self.env.robot.N):
-                action = {}
-                action["action"] = a
-                if self.video_plots:
-                    if self.plot_dist:
-                        action["cvars"] = self.episode_actions_cvars[i]
-                        action["quantiles"] = self.episode_actions_quantiles[i]
-                        action["taus"] = self.episode_actions_taus[i]
-                    elif self.plot_qvalues:
-                        action["qvalues"] = self.episode_actions_values[i]
+            for _ in range(self.env.robots[0].N):
+                # action = {}
+                # action["action"] = a
+                # if self.video_plots:
+                #     if self.plot_dist:
+                #         action["cvars"] = self.episode_actions_cvars[i]
+                #         action["quantiles"] = self.episode_actions_quantiles[i]
+                #         action["taus"] = self.episode_actions_taus[i]
+                #     elif self.plot_qvalues:
+                #         action["qvalues"] = self.episode_actions_values[i]
                 
-                actions.append(action)
+                actions.append(a)
 
         if self.video_plots:
             for i,action in enumerate(actions):
                 self.one_step(action)
                 self.fig.savefig(f"{self.plots_save_dir}/step_{self.step}.png",pad_inches=0.2,dpi=self.dpi)
         else:
-            self.animation = animation.FuncAnimation(self.fig, self.one_step,frames=actions, \
-                                                    init_func=self.init_animation,
-                                                    interval=10,repeat=False)
+            # self.animation = animation.FuncAnimation(self.fig, self.one_step,frames=actions, \
+            #                                         init_func=self.init_animation,
+            #                                         interval=10,repeat=False)
+            for i,action in enumerate(actions):
+                self.one_step(action)
             plt.show()
 
     def load_episode(self,episode_dict):

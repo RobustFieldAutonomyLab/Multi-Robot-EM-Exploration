@@ -167,78 +167,78 @@ class MarineNavEnv2(gym.Env):
         # TODO: check get_observations
         # return self.get_observations()
 
-    def reset_robot(self,robot):
+    def reset_robot(self,rob):
         # reset robot state
-        robot.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
-        robot.init_speed = self.rd.uniform(low = 0.0, high = robot.max_speed)
-        current_v = self.get_velocity(robot.start[0],robot.start[1])
-        robot.reset_state(current_velocity=current_v)
+        rob.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
+        rob.init_speed = self.rd.uniform(low = 0.0, high = rob.max_speed)
+        current_v = self.get_velocity(rob.start[0],rob.start[1])
+        rob.reset_state(current_velocity=current_v)
 
-    def step(self, action):
+    def step(self, actions):
         # TODO: rewrite step function to update state of all robots, generate corresponding observations and rewards
         # execute action, update the environment, and return (obs, reward, done)
 
-        # save action to history
-        self.robot.action_history.append(action)
+        rewards = [0]*len(self.robots)
 
-        dis_before = self.dist_to_goal()
+        assert len(actions) == len(self.robots), "Number of actions not equal number of robots!"
+        # Execute actions for all robots
+        for i,action in enumerate(actions):
+            rob = self.robots[i]
+            # save action to history
+            rob.action_history.append(action)
 
-        # update robot state after executing the action    
-        for _ in range(self.robot.N):
-            current_velocity = self.get_velocity(self.robot.x, self.robot.y)
-            self.robot.update_state(action,current_velocity)
-            # save trajectory
-            self.robot.trajectory.append([self.robot.x,self.robot.y])
+            dis_before = rob.dist_to_goal()
 
-        dis_after = self.dist_to_goal()
+            # update robot state after executing the action    
+            for _ in range(rob.N):
+                current_velocity = self.get_velocity(rob.x, rob.y)
+                rob.update_state(action,current_velocity)
+                # save trajectory
+                rob.trajectory.append([rob.x,rob.y])
+
+            dis_after = rob.dist_to_goal()
+
+            # constant penalty applied at every time step
+            rewards[i] += self.timestep_penalty
+
+            # reward agent for getting closer to the goal
+            rewards[i] += dis_before - dis_after
         
-        # get observation 
-        obs = self.get_observation()
 
-        # constant penalty applied at every time step
-        reward = self.timestep_penalty
+        # Get observation for all robots
+        observations = self.get_observations()
 
-        # # penalize action according to magnitude (energy consumption)
-        # a,w = self.robot.actions[action]
-        # u = np.matrix([[a],[w]])
-        # p = np.transpose(u) * self.energy_penalty * u
-        # reward += p[0,0]
+        dones = [True]*len(self.robots)
+        infos = [{"state":"normal"}]*len(self.robots)
 
-        # reward agent for getting closer to the goal
-        reward += dis_before-dis_after
-
-        # # penalize agent when the difference of steering direction and velocity direction is too large
-        # velocity = obs[:2]
-        # diff_angle = 0.0
-        # if np.linalg.norm(velocity) > 1e-03:
-        #     diff_angle = np.abs(np.arctan2(velocity[1],velocity[0]))
-
-        # if diff_angle > 0.25*self.robot.sonar.angle:
-        #     reward += self.angle_penalty * diff_angle
-
-        if self.set_boundary and self.out_of_boundary():
-            # No used in training 
-            done = True
-            info = {"state":"out of boundary"}
-        elif self.episode_timesteps >= 1000:
-            done = True
-            info = {"state":"too long episode"}
-        elif self.check_collision():
-            reward += self.collision_penalty
-            done = True
-            info = {"state":"collision"}
-        elif self.check_reach_goal():
-            reward += self.goal_reward
-            done = True
-            info = {"state":"reach goal"}
-        else:
-            done = False
-            info = {"state":"normal"}
+        # TODO: rewrite the reward and function: 
+        # (1) if any collision happens, end the current episode
+        # (2) if all robots reach goals, end the current episode
+        # (3) when a robot reach the goal and the episode does not end, 
+        #     remove it from the map  
+        # if self.set_boundary and self.out_of_boundary():
+        #     # No used in training 
+        #     done = True
+        #     info = {"state":"out of boundary"}
+        # elif self.episode_timesteps >= 1000:
+        #     done = True
+        #     info = {"state":"too long episode"}
+        # elif self.check_collision():
+        #     reward += self.collision_penalty
+        #     done = True
+        #     info = {"state":"collision"}
+        # elif self.check_reach_goal():
+        #     reward += self.goal_reward
+        #     done = True
+        #     info = {"state":"reach goal"}
+        # else:
+        #     done = False
+        #     info = {"state":"normal"}
 
         self.episode_timesteps += 1
         self.total_timesteps += 1
 
-        return obs, reward, done, info
+        return observations, rewards, dones, infos
 
     def out_of_boundary(self):
         # only used when boundary is set
@@ -246,14 +246,10 @@ class MarineNavEnv2(gym.Env):
         y_out = self.robot.y < 0.0 or self.robot.y > self.height
         return x_out or y_out
 
-    def dist_to_goal(self):
-        return np.linalg.norm(self.goal - np.array([self.robot.x,self.robot.y]))
-
     def get_observations(self):
         observations = []
         for robot in self.robots:
-            robot.perception_output(self.obstacles,self.robots)
-            observations.append(copy.deepcopy(robot.perception.observation))
+            observations.append(robot.perception_output(self.obstacles,self.robots))
         return observations
 
     def check_collision(self):
