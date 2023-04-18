@@ -11,7 +11,7 @@ class Perception:
         self.compute_phi() # interval angle between two beams
         self.compute_beam_angles() # relative angles to the center
         self.reflections = [] # LiDAR reflection point, indicator (0: nothing, 1: static, 2: dyanmic), and object index
-        self.max_obs = 5 # the window size of observation history
+        self.len_obs_history = 5 # the window size of observation history
         self.observation_format(cooperative)
         self.observed_obs = [] # indices of observed static obstacles
         self.observed_objs = [] # indiced of observed dynamic objects
@@ -45,8 +45,9 @@ class Robot:
         self.perception = Perception(cooperative)
         self.length = 1.0 
         self.width = 0.5
-        self.r = 0.8 # collision distance
-        self.detect_r = 0.5*np.sqrt(self.length**2+self.width**2) # detection range   
+        self.r = 0.8 # collision range
+        self.detect_r = 0.5*np.sqrt(self.length**2+self.width**2) # detection range
+        self.goal_dis = 2.0 # max distance to goal considered as reached   
         self.max_speed = 2.0
         self.a = np.array([-0.4,0.0,0.4]) # linear accelerations (m/s^2)
         self.w = np.array([-np.pi/6,0.0,np.pi/6]) # angular velocities (rad/s)
@@ -95,8 +96,8 @@ class Robot:
         w /= np.max(self.w)
         return np.abs(a) + np.abs(w)
     
-    def dist_to_goal(self):
-        return np.linalg.norm(self.goal - np.array([self.x,self.y]))
+    def check_reach_goal(self):
+        return np.linalg.norm(self.goal - np.array([self.x,self.y])) <= self.goal_dis
 
     def reset_state(self,current_velocity=np.zeros(2)):
         # only called when resetting the environment
@@ -143,6 +144,13 @@ class Robot:
             self.theta += 2 * np.pi
         while self.theta >= 2 * np.pi:
             self.theta -= 2 * np.pi
+
+    def check_collision(self,obj_x,obj_y,obj_r):
+        d = np.sqrt((self.x-obj_x)**2+(self.y-obj_y)**2)
+        if d <= obj_r + self.r:
+            return True
+        else:
+            return False
 
     def compute_intersection(self,angle,obj_x,obj_y,obj_r):
         # compute the intersection point of a LiDAR beam with an object
@@ -229,6 +237,9 @@ class Robot:
         if self.cooperative:
             self.perception.observed_objs.clear()
 
+        collision = False
+        reach_goal = self.check_reach_goal()
+
         for rel_a in self.perception.beam_angles:
             angle = self.theta + rel_a
 
@@ -290,19 +301,28 @@ class Robot:
                     # add the new static object observation into the observation
                     self.perception.observed_obs.append(idx)
                     obs = obstacles[idx]
+
+                    if not collision:
+                        collision = self.check_collision(obs.x,obs.y,obs.r)
+
                     pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
                     self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
+                    
             elif tp == 2 and self.cooperative:
                 if idx not in self.perception.observed_objs:
                     # In a cooperative agent, also include dynamic object observation
                     self.perception.observed_objs.append(idx)
                     robot = robots[idx]
+                    
+                    if not collision:
+                        collision = self.check_collision(robot.x,robot.y,obs.r)
+
                     pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
                     v_r = self.project_to_robot_frame(robot.velocity)
                     new_obs = list(np.concatenate((pos_r,v_r)))
                     if idx in self.perception.observation["dynamic"].keys():
                         self.perception.observation["dynamic"][idx].append(new_obs)
-                        while len(self.perception.observation["dynamic"][idx]) > self.perception.max_obs:
+                        while len(self.perception.observation["dynamic"][idx]) > self.perception.len_obs_history:
                             del self.perception.observation["dynamic"][idx][0]
                     else:
                         self.perception.observation["dynamic"][idx] = [new_obs]
@@ -313,12 +333,20 @@ class Robot:
                     # remove the observation history if the object is not observed in the current step
                     del self.perception.observation["dynamic"][idx]
 
-        observation = copy.deepcopy(self.perception.observation)
+        self_state = copy.deepcopy(self.perception.observation["self"])
+        static_states = copy.deepcopy(self.perception.observation["static"])
         if self.cooperative:
             # remove object indices 
-            observation["dynamic"] = list(observation["dynamic"].values())
-
-        return observation
+            dynamic_states = list(self.perception.observation["dynamic"].values())
+            idx_array = []
+            for idx,obs_history in enumerate(dynamic_states):
+                # pad the dynamic observation and save the indices of exact lastest element
+                idx_array.append([idx,len(obs_history)-1])
+                while len(obs_history) < self.perception.len_obs_history:
+                    obs_history.append([0.,0.,0.,0.])
+            return (self_state,static_states,dynamic_states,idx_array), collision, reach_goal
+        else:
+            return (self_state,static_states), collision, reach_goal
 
 
 

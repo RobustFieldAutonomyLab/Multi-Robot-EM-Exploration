@@ -8,11 +8,13 @@ class DynamicEncoder(nn.Module):
         self.feature_dimension = feature_dimension
         self.encoder = nn.RNN(dynamic_dimension,feature_dimension,batch_first=True)
     
-    def forward(self,x):
+    def forward(self,x,idx_array):
+        assert len(idx_array) == 2, "The dimension of index_array must be 2"
         h0 = torch.zeros(1,x.size(0),self.feature_dimension)
         hiddens, _ = self.encoder(x,h0)
-        return hiddens[:,-1,:]
-    
+        return hiddens[idx_array[:,0],idx_array[:,0],:]
+
+
 def encoder(input_dimension,output_dimension):
     l1 = nn.Linear(input_dimension,output_dimension)
     l2 = nn.ReLU()
@@ -35,17 +37,38 @@ class PolicyNetwork(nn.Module):
         super().__init__()
         self.self_encoder = encoder(self_dimension,feature_dimension)
         self.static_encoder = encoder(static_dimension,feature_dimension)
-        if cooperative:
+        self.cooperative = cooperative
+        if self.cooperative:
             self.dynamic_encoder = DynamicEncoder(dynamic_dimension,feature_dimension)
         else:
             self.dynamic_encoder = None
 
-        self.GCN = GCN(feature_dimension,gcn_hidden_dimension,feature_2_dimension)
-        self.IQN = IQN(feature_2_dimension,iqn_hidden_dimension,action_size,seed)
+        self.gcn = GCN(feature_dimension,gcn_hidden_dimension,feature_2_dimension)
+        self.iqn = IQN(feature_2_dimension,iqn_hidden_dimension,action_size,seed)
         
-    def forward(self,x,n_tau=8,cvar=1.0):
-        pass
-        
+    def forward(self,x,num_tau=8,cvar=1.0):
+        if self.cooperative:
+            assert len(x) == 3, "The number of state types of a cooperative agent must be 4!"
+            x_1, x_2, x_3, idx_array = x
+
+            x_1_feature = self.self_encoder(x_1)
+            x_2_feature = self.static_encoder(x_2)
+            x_3_feature = self.dynamic_encoder(x_3,idx_array)
+
+            X_feature = torch.cat((x_1_feature,x_2_feature,x_3_feature),dim=0).unsqueeze(0)
+        else:
+            assert len(x) == 2, "The number of state types of a non-cooperative agent must be 2!"
+            x_1, x_2 = x
+
+            x_1_feature = self.self_encoder(x_1)
+            x_2_feature = self.static_encoder(x_2)
+
+            X_feature = torch.cat((x_1_feature,x_2_feature),dim=0).unsqueeze(0)
+
+        self_interation_feature = self.gcn(X_feature)
+        quantiles, taus = self.iqn(self_interation_feature,num_tau,cvar)
+        return quantiles, taus
+
 
 class GCN(nn.Module):
     def __init__(self,feature_dimension,hidden_dimension,output_dimension) -> None:

@@ -45,7 +45,6 @@ class MarineNavEnv2(gym.Env):
         self.reset_start_and_goal = True # if the start and goal position be set randomly in reset()
         self.start = np.array([5.0,5.0]) # robot start position
         self.goal = np.array([45.0,45.0]) # goal position
-        self.goal_dis = 2.0 # max distance to goal considered as reached
         self.timestep_penalty = -1.0
         self.collision_penalty = -50.0
         self.goal_reward = 100.0
@@ -206,39 +205,53 @@ class MarineNavEnv2(gym.Env):
         
 
         # Get observation for all robots
-        observations = self.get_observations()
+        observations, collisions, reach_goals = self.get_observations()
 
-        dones = [True]*len(self.robots)
+        dones = [False]*len(self.robots)
         infos = [{"state":"normal"}]*len(self.robots)
 
-        # TODO: rewrite the reward and function: 
-        # (1) if any collision happens, end the current episode
-        # (2) if all robots reach goals, end the current episode
-        # (3) when a robot reach the goal and the episode does not end, 
-        #     remove it from the map  
+
+        # (1) end the current episode if it's too long
+        # (2) if any collision happens, end the current episode
+        # (3) if all robots reach goals (robot list is empty), end the current episode
+        
+        end_episode = False
+        remove_list = []
+        for idx,robot in enumerate(self.robots):
+            if self.episode_timesteps >= 1000:
+                end_episode = True
+                dones[idx] = True
+                infos[idx] = {"state":"too long episode"}
+            elif collisions[idx]:
+                rewards[idx] += self.collision_penalty
+                end_episode = True
+                dones[idx] = True
+                infos[idx] = {"state":"collision"}
+            elif reach_goals[idx]:
+                # when a robot reach the goal, remove it from the map
+                rewards[idx] += self.goal_reward
+                dones[idx] = True
+                infos[idx] = {"state":"reach goal"}
+                remove_list.append(robot)
+            else:
+                dones[idx] = False
+                infos[idx] = {"state":"normal"}
+        
+        for robot in remove_list:
+            self.robots.remove(robot)
+        
+        if len(self.robots) == 0:
+            end_episode = True
+
         # if self.set_boundary and self.out_of_boundary():
         #     # No used in training 
         #     done = True
         #     info = {"state":"out of boundary"}
-        # elif self.episode_timesteps >= 1000:
-        #     done = True
-        #     info = {"state":"too long episode"}
-        # elif self.check_collision():
-        #     reward += self.collision_penalty
-        #     done = True
-        #     info = {"state":"collision"}
-        # elif self.check_reach_goal():
-        #     reward += self.goal_reward
-        #     done = True
-        #     info = {"state":"reach goal"}
-        # else:
-        #     done = False
-        #     info = {"state":"normal"}
 
         self.episode_timesteps += 1
         self.total_timesteps += 1
 
-        return observations, rewards, dones, infos
+        return observations, rewards, dones, infos, end_episode
 
     def out_of_boundary(self):
         # only used when boundary is set
@@ -248,25 +261,14 @@ class MarineNavEnv2(gym.Env):
 
     def get_observations(self):
         observations = []
+        collisions = []
+        reach_goals = []
         for robot in self.robots:
-            observations.append(robot.perception_output(self.obstacles,self.robots))
-        return observations
-
-    def check_collision(self):
-        if len(self.obstacles) == 0:
-            return False
-        
-        for obs in self.obstacles:
-            d = np.sqrt((self.robot.x-obs.x)**2+(self.robot.y-obs.y)**2)
-            if d <= obs.r + self.robot.r:
-                return True
-        return False
-
-    def check_reach_goal(self):
-        dis = np.array([self.robot.x,self.robot.y]) - self.goal
-        if np.linalg.norm(dis) <= self.goal_dis:
-            return True
-        return False
+            observation, collision, reach_goal = robot.perception_output(self.obstacles,self.robots)
+            observations.append(observation)
+            collisions.append(collision)
+            reach_goals.append(reach_goal)
+        return observations, collisions, reach_goals
     
     def check_start_and_goal(self,start,goal):
         
