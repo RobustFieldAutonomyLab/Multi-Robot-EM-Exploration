@@ -1,20 +1,33 @@
-from torch.utils.data import Dataset
+import random
+from collections import deque
+import torch
 
-class ReplayBuffer(Dataset):
-    def __init__(self,capacity):
-        self.capacity = capacity
-        self.memory = []
-        self.position = 0
+class ReplayBuffer:
+    """Fixed-size buffer to store experience tuples."""
+
+    def __init__(self, buffer_size, batch_size, seed=249):
+        """
+        Params
+        ======
+            buffer_size (int): maximum size of buffer
+            batch_size (int): size of each training batch
+            seed (int): random seed
+        """
+        self.memory = deque(maxlen=buffer_size)  
+        self.batch_size = batch_size
+        self.seed = random.seed(seed)
+    
+    def add(self,item):
+        """Add a new experience to memory."""
+        self.memory.append(item)
+    
+    def sample(self):
+        """Randomly sample a batch of experiences from memory."""
+        samples = random.sample(self.memory, k=self.batch_size)
+        for sample in samples:
+            [torch.tensor(element) for element in sample]
+        return samples
 
     def __len__(self):
+        """Return the current size of internal memory."""
         return len(self.memory)
-    
-    def __getitem__(self, index):
-        return self.memory[index]
-    
-    def push(self,element):
-        if len(self.memory) < self.capacity:
-            self.memory.append(element)
-        else:
-            self.memory[self.position] = element
-        self.position = (self.position+1) % self.capacity

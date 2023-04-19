@@ -8,10 +8,10 @@ class Perception:
         self.range = 15.0 # range of beams (meter)
         self.angle = 2 * np.pi # detection angle range
         self.num_beams = 181 # number of beams (asssume each is a line)
+        self.len_obs_history = 5 # the window size of observation history
         self.compute_phi() # interval angle between two beams
         self.compute_beam_angles() # relative angles to the center
         self.reflections = [] # LiDAR reflection point, indicator (0: nothing, 1: static, 2: dyanmic), and object index
-        self.len_obs_history = 5 # the window size of observation history
         self.observation_format(cooperative)
         self.observed_obs = [] # indices of observed static obstacles
         self.observed_objs = [] # indiced of observed dynamic objects
