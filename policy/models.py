@@ -75,19 +75,17 @@ class PolicyNetwork(nn.Module):
                     seed = self.seed)
 
     def save(self,directory):
-        # torch.save({"state_dict": self.state_dict(), "constructor_params": self.get_constructor_parameters()}, path)
-        # torch.save(self.state_dict(), path)
-
+        agent = "cooperative_model" if self.cooperative else "non_cooperative_model"
+        
         # save network parameters
-        torch.save(self.state_dict(),os.path.join(directory,"network_params.pth"))
+        torch.save(self.state_dict(),os.path.join(directory,f"{agent}_network_params.pth"))
         
         # save constructor parameters
-        with open(os.path.join(directory,"constructor_params.json"),mode="w") as constructor_f:
+        with open(os.path.join(directory,f"{agent}_constructor_params.json"),mode="w") as constructor_f:
             json.dump(self.get_constructor_parameters(),constructor_f)
 
     @classmethod
     def load(cls,directory,device="cpu"):
-        
         # load network parameters
         model_params = torch.load(os.path.join(directory,"network_params.pth"),
                                   map_location=device)

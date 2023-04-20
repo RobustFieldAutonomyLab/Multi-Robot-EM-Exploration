@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-from policy.policy import PolicyNetwork
+from policy.models import PolicyNetwork
 from policy.replay_buffer import ReplayBuffer
 import numpy as np
 import random
@@ -20,29 +20,18 @@ class Agent():
                  BUFFER_SIZE=1_000_000,
                  LR=1e-4, 
                  TAU=1.0, 
-                 GAMMA=0.99, 
-                 UPDATE_EVERY=4,
-                 learning_starts=10000,
-                 target_update_interval=10000,
-                 exploration_fraction=0.1,
-                 initial_eps=1.0,
-                 final_eps=0.05, 
+                 GAMMA=0.99,  
                  device="cpu", 
                  seed_1=0,
                  seed_2=1):
         
+        self.cooperative = cooperative
         self.device = device
         self.LR = LR
         self.TAU = TAU
         self.GAMMA = GAMMA
-        self.UPDATE_EVERY = UPDATE_EVERY
         self.BUFFER_SIZE = BUFFER_SIZE
         self.BATCH_SIZE = BATCH_SIZE
-        self.learning_starts = learning_starts
-        self.target_update_interval = target_update_interval
-        self.exploration_fraction = exploration_fraction
-        self.initial_eps = initial_eps
-        self.final_eps = final_eps
 
         self.policy_local = PolicyNetwork(self_dimension,static_dimension,feature_dimension,
                                           gcn_hidden_dimension,feature_2_dimension,iqn_hidden_dimension,
@@ -53,30 +42,7 @@ class Agent():
         
         self.optimizer = optim.Adam(self.policy_local.parameters(), lr=self.LR)
 
-        self.memory = ReplayBuffer(BUFFER_SIZE)
-
-        # current time step
-        self.current_timestep = 0
-
-        # learning time step (start counting after learning_starts time step)
-        self.learning_timestep = 0
-
-        # evaluation data
-        self.eval_timesteps = dict(greedy=[],adaptive=[])
-        self.eval_actions = dict(greedy=[],adaptive=[])
-        self.eval_rewards = dict(greedy=[],adaptive=[])
-        self.eval_successes = dict(greedy=[],adaptive=[])
-        self.eval_times = dict(greedy=[],adaptive=[])
-        self.eval_energies = dict(greedy=[],adaptive=[])
-    
-    def linear_eps(self,total_timesteps):
-        
-        progress = self.current_timestep / total_timesteps
-        if progress < self.exploration_fraction:
-            r = progress / self.exploration_fraction
-            return self.initial_eps + r * (self.final_eps - self.initial_eps)
-        else:
-            return self.final_eps
+        self.memory = ReplayBuffer(BUFFER_SIZE,BATCH_SIZE)
 
     def act(self, state, eps=0.0, cvar=1.0):
         """Returns action index and quantiles 
@@ -179,6 +145,10 @@ class Agent():
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(self.TAU * local_param.data + (1.0 - self.TAU) * target_param.data)
+
+    def save_latest_model(self,directory):
+        self.policy_local.save(directory)
+
 
 def calculate_huber_loss(td_errors, k=1.0):
     """

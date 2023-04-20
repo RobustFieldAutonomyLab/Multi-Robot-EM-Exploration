@@ -5,7 +5,8 @@ from multiprocessing import Pool
 import json
 from datetime import datetime
 import numpy as np
-import marinenav_env.envs.marinenav_env as marinenav_env
+from marinenav_env.envs.marinenav_env import MarineNavEnv2
+from policy.agent import Agent
 
 parser = argparse.ArgumentParser(description="Train IQN model")
 
@@ -75,3 +76,10 @@ def run_trial(device,params):
     param_file = os.path.join(exp_dir,"trial_config.json")
     with open(param_file, 'w+') as outfile:
         json.dump(params, outfile)
+
+    # schedule of curriculum training
+    training_schedule = dict(timesteps=[0,1000000,2000000],
+                             num_cores=[4,6,8],
+                             num_obstacles=[6,8,10],
+                             min_start_goal_dis=[30.0,35.0,40.0],
+                             )

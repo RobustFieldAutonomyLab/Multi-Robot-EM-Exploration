@@ -28,6 +28,6 @@ class ReplayBuffer:
             [torch.tensor(element) for element in sample]
         return samples
 
-    def __len__(self):
+    def size(self):
         """Return the current size of internal memory."""
         return len(self.memory)

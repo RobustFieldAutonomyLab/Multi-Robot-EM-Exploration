@@ -44,7 +44,7 @@ class MarineNavEnv2(gym.Env):
         self.goal_reward = 100.0
         self.num_cores = 8 # number of vortices
         self.num_obs = 8 # number of static obstacles
-        self.min_start_goal_dis = 30.0
+        self.min_start_goal_dis = 30.0 # minimum distance between start and goal
         self.num_cooperative = 3 # number of cooperative robots
         self.num_non_cooperative = 3 # number of non-cooperative robots
 
@@ -76,15 +76,19 @@ class MarineNavEnv2(gym.Env):
             # find the interval the current timestep falls into
             idx = len(diffs[diffs<=0])-1
 
+            self.num_cooperative = self.schedule["num_cooperative"][idx]
+            self.num_non_cooperative = self.schedule["num_non_cooperative"][idx]
             self.num_cores = self.schedule["num_cores"][idx]
             self.num_obs = self.schedule["num_obstacles"][idx]
             self.min_start_goal_dis = self.schedule["min_start_goal_dis"][idx]
 
-            print("======== training env setup ========")
+            print("======== training schedule ========")
+            print("num of cooperative agents: ",self.num_cooperative)
+            print("num of non-cooperative agents: ",self.num_non_cooperative)
             print("num of cores: ",self.num_cores)
             print("num of obstacles: ",self.num_obs)
             print("min start goal dis: ",self.min_start_goal_dis)
-            print("======== training env setup ========\n") 
+            print("======== training schedule ========\n") 
         
         self.episode_timesteps = 0
 
@@ -201,7 +205,7 @@ class MarineNavEnv2(gym.Env):
 
         dones = [False]*len(self.robots)
         infos = [{"state":"normal"}]*len(self.robots)
-
+        robot_types = [robot.cooperative for robot in self.robots]
 
         # (1) end the current episode if it's too long
         # (2) if any collision happens, end the current episode
@@ -243,7 +247,7 @@ class MarineNavEnv2(gym.Env):
         self.episode_timesteps += 1
         self.total_timesteps += 1
 
-        return observations, rewards, dones, infos, end_episode
+        return observations, rewards, dones, infos, end_episode, robot_types
 
     def out_of_boundary(self):
         # only used when boundary is set
@@ -408,8 +412,6 @@ class MarineNavEnv2(gym.Env):
             return Gamma / (2*np.pi*d)
 
     def reset_with_eval_config(self,eval_config):
-        # TODO: rewrite function
-
         self.episode_timesteps = 0
         
         # load env config
@@ -422,13 +424,9 @@ class MarineNavEnv2(gym.Env):
         self.v_range = copy.deepcopy(eval_config["env"]["v_range"])
         self.obs_r_range = copy.deepcopy(eval_config["env"]["obs_r_range"])
         self.clear_r = eval_config["env"]["clear_r"]
-        self.start = np.array(eval_config["env"]["start"])
-        self.goal = np.array(eval_config["env"]["goal"])
-        self.goal_dis = eval_config["env"]["goal_dis"]
         self.timestep_penalty = eval_config["env"]["timestep_penalty"]
         self.collision_penalty = eval_config["env"]["collision_penalty"]
         self.goal_reward = eval_config["env"]["goal_reward"]
-        self.discount = eval_config["env"]["discount"]
 
         # load vortex cores
         self.cores.clear()
@@ -456,31 +454,38 @@ class MarineNavEnv2(gym.Env):
             obs = Obstacle(center[0],center[1],r)
             self.obstacles.append(obs)
 
-
         # load robot config
-        self.robot.dt = eval_config["robot"]["dt"]
-        self.robot.N = eval_config["robot"]["N"]
-        self.robot.length = eval_config["robot"]["length"]
-        self.robot.width = eval_config["robot"]["width"]
-        self.robot.r = eval_config["robot"]["r"]
-        self.robot.max_speed = eval_config["robot"]["max_speed"]
-        self.robot.a = np.array(eval_config["robot"]["a"])
-        self.robot.w = np.array(eval_config["robot"]["w"])
-        self.robot.compute_k()
-        self.robot.compute_actions()
+        self.robots.clear()
+        for i in range(len(eval_config["robots"]["cooperative"])):
+            rob = robot.Robot(eval_config["robots"]["cooperative"][i])
+            rob.dt = eval_config["robots"]["dt"][i]
+            rob.N = eval_config["robots"]["N"][i]
+            rob.length = eval_config["robots"]["length"][i]
+            rob.width = eval_config["robots"]["width"][i]
+            rob.r = eval_config["robots"]["r"][i]
+            rob.detect_r = eval_config["robots"]["detect_r"][i]
+            rob.goal_dis = eval_config["robots"]["goal_dis"][i]
+            rob.max_speed = eval_config["robots"]["max_speed"][i]
+            rob.a = np.array(eval_config["robots"]["a"][i])
+            rob.w = np.array(eval_config["robots"]["w"][i])
+            rob.start = np.array(eval_config["robots"]["start"][i])
+            rob.goal = np.array(eval_config["robots"]["goal"][i])
+            rob.compute_k()
+            rob.compute_actions()
+            rob.init_theta = eval_config["robots"]["init_theta"][i]
+            rob.init_speed = eval_config["robots"]["init_speed"][i]
+            
+            rob.perception.range = eval_config["robots"]["perception"]["range"][i]
+            rob.perception.angle = eval_config["robots"]["perception"]["angle"][i]
+            rob.perception.num_beams = eval_config["robots"]["perception"]["num_beams"][i]
+            rob.perception.len_obs_history = eval_config["robots"]["perception"]["len_obs_history"][i]
 
-        # load perception config
-        self.robot.perception.range = eval_config["robot"]["perception"]["range"]
-        self.robot.perception.angle = eval_config["robot"]["perception"]["angle"]
-        self.robot.perception.num_beams = eval_config["robot"]["perception"]["num_beams"]
-        self.robot.perception.compute_phi()
-        self.robot.perception.compute_beam_angles()
+            current_v = self.get_velocity(rob.start[0],rob.start[1])
+            rob.reset_state(current_velocity=current_v)
+            
+            self.robots.append(rob)
 
-        # reset robot state
-        current_v = self.get_velocity(self.start[0],self.start[1])
-        self.robot.reset_state(self.start[0],self.start[1], current_velocity=current_v)
-
-        return self.get_observation()          
+        return self.get_observations()          
 
     def episode_data(self):
         episode = {}
