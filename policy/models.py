@@ -135,9 +135,9 @@ class GCN(nn.Module):
         R = nn.Softmax(R,dim=1)
 
         # compute new features that encodes interactions
-        x = torch.matmul(torch.matmul(R,x),self.w1)+x
+        x = torch.matmul(torch.matmul(R,x),self.w1)
         x = nn.ReLU(x)
-        x = torch.matmul(torch.matmul(R,x),self.w2)+x 
+        x = torch.matmul(torch.matmul(R,x),self.w2)
         x = nn.ReLU(x)
 
         # return the self feature 

@@ -62,6 +62,7 @@ class Robot:
         
         self.start = None # start position
         self.goal = None # goal position
+        self.reach_goal = False
 
         self.init_theta = 0.0 # theta at initial position
         self.init_speed = 0.0 # speed at initial position
@@ -97,7 +98,8 @@ class Robot:
         return np.abs(a) + np.abs(w)
     
     def check_reach_goal(self):
-        return np.linalg.norm(self.goal - np.array([self.x,self.y])) <= self.goal_dis
+        if np.linalg.norm(self.goal - np.array([self.x,self.y])) <= self.goal_dis:
+            self.reach_goal = True
 
     def reset_state(self,current_velocity=np.zeros(2)):
         # only called when resetting the environment
@@ -219,6 +221,9 @@ class Robot:
 
 
     def perception_output(self,obstacles,robots):
+        if self.reach_goal:
+            return None, False, True
+        
         self.perception.reflections.clear()
         self.perception.observation["static"].clear()
 
@@ -238,7 +243,7 @@ class Robot:
             self.perception.observed_objs.clear()
 
         collision = False
-        reach_goal = self.check_reach_goal()
+        self.check_reach_goal()
 
         for rel_a in self.perception.beam_angles:
             angle = self.theta + rel_a
@@ -279,6 +284,9 @@ class Robot:
             for j,robot in enumerate(robots):
                 if robot is self:
                     continue
+                if robot.reach_goal:
+                    # This robot is in the deactivate state, and abscent from the current map
+                    continue
 
                 p = self.compute_intersection(angle,robot.x,robot.y,robot.detect_r)
 
@@ -313,6 +321,7 @@ class Robot:
                     # In a cooperative agent, also include dynamic object observation
                     self.perception.observed_objs.append(idx)
                     robot = robots[idx]
+                    assert robot.reach_goal is False, "robots that reach goal must be removed!"
                     
                     if not collision:
                         collision = self.check_collision(robot.x,robot.y,obs.r)
@@ -344,9 +353,9 @@ class Robot:
                 idx_array.append([idx,len(obs_history)-1])
                 while len(obs_history) < self.perception.len_obs_history:
                     obs_history.append([0.,0.,0.,0.])
-            return (self_state,static_states,dynamic_states,idx_array), collision, reach_goal
+            return (self_state,static_states,dynamic_states,idx_array), collision, self.reach_goal
         else:
-            return (self_state,static_states), collision, reach_goal
+            return (self_state,static_states), collision, self.reach_goal
 
 
 

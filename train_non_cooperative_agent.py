@@ -7,6 +7,7 @@ from datetime import datetime
 import numpy as np
 from marinenav_env.envs.marinenav_env import MarineNavEnv2
 from policy.agent import Agent
+from policy.trainer import Trainer
 
 parser = argparse.ArgumentParser(description="Train IQN model")
 

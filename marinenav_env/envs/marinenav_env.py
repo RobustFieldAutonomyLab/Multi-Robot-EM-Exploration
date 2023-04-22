@@ -164,21 +164,34 @@ class MarineNavEnv2(gym.Env):
 
     def reset_robot(self,rob):
         # reset robot state
+        rob.reach_goal = False
         rob.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
         rob.init_speed = self.rd.uniform(low = 0.0, high = rob.max_speed)
         current_v = self.get_velocity(rob.start[0],rob.start[1])
         rob.reset_state(current_velocity=current_v)
 
+    def check_all_reach_goal(self):
+        res = True
+        for rob in self.robots:
+            if not rob.reach_goal:
+                res = False
+                break
+        return res
+
     def step(self, actions):
-        # TODO: rewrite step function to update state of all robots, generate corresponding observations and rewards
-        # execute action, update the environment, and return (obs, reward, done)
 
         rewards = [0]*len(self.robots)
 
         assert len(actions) == len(self.robots), "Number of actions not equal number of robots!"
+        assert self.check_all_reach_goal() is not True, "All robots reach goals, not actions are available!"
         # Execute actions for all robots
         for i,action in enumerate(actions):
             rob = self.robots[i]
+
+            if rob.reach_goal:
+                # This robot is in the deactivate state
+                continue
+
             # save action to history
             rob.action_history.append(action)
 
@@ -205,15 +218,19 @@ class MarineNavEnv2(gym.Env):
 
         dones = [False]*len(self.robots)
         infos = [{"state":"normal"}]*len(self.robots)
-        robot_types = [robot.cooperative for robot in self.robots]
 
         # (1) end the current episode if it's too long
         # (2) if any collision happens, end the current episode
         # (3) if all robots reach goals (robot list is empty), end the current episode
         
         end_episode = False
-        remove_list = []
-        for idx,robot in enumerate(self.robots):
+        for idx,rob in enumerate(self.robots):
+            if rob.reach_goal:
+                # This robot is in the deactivate state
+                dones[idx] = True
+                infos[idx] = {"state":"reach goal"}
+                continue
+            
             if self.episode_timesteps >= 1000:
                 end_episode = True
                 dones[idx] = True
@@ -224,19 +241,14 @@ class MarineNavEnv2(gym.Env):
                 dones[idx] = True
                 infos[idx] = {"state":"collision"}
             elif reach_goals[idx]:
-                # when a robot reach the goal, remove it from the map
                 rewards[idx] += self.goal_reward
                 dones[idx] = True
                 infos[idx] = {"state":"reach goal"}
-                remove_list.append(robot)
             else:
                 dones[idx] = False
                 infos[idx] = {"state":"normal"}
         
-        for robot in remove_list:
-            self.robots.remove(robot)
-        
-        if len(self.robots) == 0:
+        if self.check_all_reach_goal():
             end_episode = True
 
         # if self.set_boundary and self.out_of_boundary():
@@ -247,7 +259,7 @@ class MarineNavEnv2(gym.Env):
         self.episode_timesteps += 1
         self.total_timesteps += 1
 
-        return observations, rewards, dones, infos, end_episode, robot_types
+        return observations, rewards, dones, infos, end_episode
 
     def out_of_boundary(self):
         # only used when boundary is set

@@ -1,6 +1,7 @@
 import json
 import numpy as np
 import os
+import copy
 
 class Trainer():
     def __init__(self,
@@ -44,6 +45,9 @@ class Trainer():
         self.eval_successes = []
         self.eval_times = []
         self.eval_energies = []
+        self.eval_relations = []
+        self.eval_obs = []
+        self.eval_objs = []
 
     def create_eval_configs(self,eval_schedule):
         self.eval_config.clear()
@@ -82,8 +86,6 @@ class Trainer():
         ep_rewards = np.zeros(len(self.train_env.robots))
         ep_length = 0
         ep_num = 0
-        num_initial_robots = len(self.train_env.robots)
-        num_reach_goal = 0
         
         while self.current_timestep <= total_timesteps:
             eps = self.linear_eps(total_timesteps)
@@ -91,28 +93,31 @@ class Trainer():
             # gather actions for robots from agents 
             actions = []
             for i,rob in enumerate(self.train_env.robots):
+                if rob.reach_goal:
+                    actions.append(None)
+                    continue
+
                 if rob.cooperative:
-                    action = self.cooperative_agent.act(states[i],eps)
+                    action,_,_,_ = self.cooperative_agent.act(states[i],eps)
                 else:
-                    action = self.noncooperative_agent.act(states[i],eps)
+                    action,_,_,_ = self.noncooperative_agent.act(states[i],eps)
                 actions.append(action)
 
             # execute actions in the training environment
-            next_states, rewards, dones, infos, end_episode, robot_types = self.train_env.step(actions)
+            next_states, rewards, dones, infos, end_episode = self.train_env.step(actions)
 
             # save experience in replay memory
-            # TODO: consider setting robot to None when it reaches the goal and the episode does not end
-            for i,cooperative in enumerate(robot_types):
-                if cooperative:
+            for i,rob in enumerate(self.train_env.robots):
+                if rob.reach_goal:
+                    continue
+
+                if rob.cooperative:
                     ep_rewards[i] += self.cooperative_agent.GAMMA ** ep_length * rewards[i]
                     self.cooperative_agent.memory.add((states[i], actions[i], rewards[i], next_states[i], dones[i]))
                 else:
                     ep_rewards[i] += self.noncooperative_agent.GAMMA ** ep_length * rewards[i]
                     self.noncooperative_agent.memory.add((states[i], actions[i], rewards[i], next_states[i], dones[i]))
                 
-                if infos[i]["state"] == "reach goal":
-                    num_reach_goal += 1
-
             states = next_states
             ep_length += 1
             
@@ -149,22 +154,23 @@ class Trainer():
                 
                 if verbose:
                     # print abstract info of learning process
-                    print("======== training info ========")
+                    print("======== Episode Info ========")
                     print("current ep_length: ",ep_length)
-                    print("robots_num: ",num_initial_robots)
-                    print("success_robots_num: ",num_reach_goal)
-                    print("episodes_num: ",ep_num)
-                    print("exploration_rate: ",eps)
-                    print("current_timesteps: ",self.current_timestep)
-                    print("total_timesteps: ",total_timesteps)
-                    print("======== training info ========\n") 
+                    print("current ep_num: ",ep_num)
+                    print("current exploration rate: ",eps)
+                    print("current timesteps: ",self.current_timestep)
+                    print("total timesteps: ",total_timesteps)
+                    print("======== Episode Info ========")
+                    print("======== Robots Info ========")
+                    for i,rob in enumerate(self.train_env.robots):
+                        info = infos[i]["state"]
+                        print(f"Robot {i} ep reward: {ep_rewards[i]:.2f}, {info}")
+                    print("======== Robots Info ========\n") 
                 
-                ep_reward = 0.0
+                ep_rewards = np.zeros(len(self.train_env.robots))
                 ep_length = 0
 
                 states = self.train_env.reset()
-                num_initial_robots = len(self.train_env.robots)
-                num_reach_goal = 0
                 # cvar = 1 - np.random.uniform(0.0, 1.0)
 
             self.current_timestep += 1
@@ -185,61 +191,99 @@ class Trainer():
             eval_env (gym compatible env): evaluation environment
             eval_config: eval envs config file
         """
-        action_data = []
-        reward_data = []
-        success_data = []
-        time_data = []
-        energy_data = []
+        actions_data = []
+        rewards_data = []
+        successes_data = []
+        times_data = []
+        energies_data = []
+        relations_data = []
+        obs_data = []
+        objs_data = []
         
-        for idx, config in enumerate(eval_config.values()):
+        for idx, config in enumerate(self.eval_config):
             print(f"Evaluating episode {idx}")
-            observation = eval_env.reset_with_eval_config(config)
-            actions = []
-            cumulative_reward = 0.0
-            length = 0
-            energy = 0.0
-            done = False
+            state = self.eval_env.reset_with_eval_config(config)
+            obs = [[copy.deepcopy(rob.observed_obs)] for rob in self.eval_env.robots]
+            objs = [[copy.deepcopy(rob.observed_objs)] for rob in self.eval_env.robots]
             
-            while not done and length < 1000:
-                if greedy:
-                    action,quantiles,taus,R_matrix = self.act(observation,eps=0.0)
-                else:
-                    action,quantiles,taus,R_matrix,cvar = self.act_adaptive(observation,eps=0.0)    
-                observation, reward, done, info = eval_env.step(action)
-                cumulative_reward += eval_env.discount ** length * reward
+            rob_num = len(self.eval_env.robots)
+
+            actions = [[] for _ in range(rob_num)]
+            relations = [[] for _ in range(rob_num)]
+            rewards = [0.0]*rob_num
+            times = [0.0]*rob_num
+            energies = [0.0]*rob_num
+            end_episode = False
+            length = 0
+            
+            while not end_episode:
+                # gather actions for robots from agents 
+                action = []
+                for i,rob in enumerate(self.eval_env.robots):
+                    if rob.reach_goal:
+                        action.append(None)
+                        continue
+
+                    if rob.cooperative:
+                        a,quantiles,taus,R_matrix = self.cooperative_agent.act(state[i])
+                    else:
+                        a,quantiles,taus,R_matrix = self.noncooperative_agent.act(state[i])
+                    action.append(a)
+                    actions[i].append(a)
+                    relations[i].append(R_matrix.to_list())
+
+                # execute actions in the training environment
+                state, reward, done, info, end_episode = self.train_env.step(action)
+                
+                for i,rob in enumerate(self.eval_env.robots):
+                    if rob.reach_goal:
+                        continue
+                    
+                    if rob.cooperative:
+                        rewards[i] += self.cooperative_agent.GAMMA ** length * reward[i]
+                    else:
+                        rewards[i] += self.noncooperative_agent.GAMMA ** length * reward[i]
+                    times[i] += rob.dt * rob.N
+                    energies[i] += rob.compute_action_energy_cost(action[i])
+                    obs[i].append(copy.deepcopy(rob.observed_obs))
+                    objs[i].append(copy.deepcopy(rob.observed_objs))
+
                 length += 1
-                energy += eval_env.robot.compute_action_energy_cost(int(action))
-                actions.append(int(action))
 
-            success = True if info["state"] == "reach goal" else False
-            time = eval_env.robot.dt * eval_env.robot.N * length
 
-            action_data.append(actions)
-            reward_data.append(cumulative_reward)
-            success_data.append(success)
-            time_data.append(time)
-            energy_data.append(energy)
+            success = True if self.eval_env.check_all_reach_goal() else False
+
+            actions_data.append(actions)
+            rewards_data.append(rewards)
+            successes_data.append(success)
+            times_data.append(times)
+            energies_data.append(energies)
+            relations_data.append(relations)
+            obs_data.append(obs)
+            objs_data.append(objs)
         
-        avg_r = np.mean(reward_data)
-        success_rate = np.sum(success_data)/len(success_data)
-        idx = np.where(np.array(success_data) == 1)[0]
-        avg_t = np.mean(np.array(time_data)[idx])
-        avg_e = np.mean(np.array(energy_data)[idx])
+        avg_r = np.mean(rewards_data)
+        success_rate = np.sum(successes_data)/len(successes_data)
+        # idx = np.where(np.array(successes_data) == 1)[0]
+        # avg_t = np.mean(np.array(time_data)[idx])
+        # avg_e = np.mean(np.array(energy_data)[idx])
 
-        policy = "greedy" if greedy else "adaptive"
-        print(f"++++++++ Evaluation info ({policy} IQN) ++++++++")
+        print(f"++++++++ Evaluation Info ++++++++")
         print(f"Avg cumulative reward: {avg_r:.2f}")
         print(f"Success rate: {success_rate:.2f}")
-        print(f"Avg time: {avg_t:.2f}")
-        print(f"Avg energy: {avg_e:.2f}")
-        print(f"++++++++ Evaluation info ({policy} IQN) ++++++++\n")
+        # print(f"Avg time: {avg_t:.2f}")
+        # print(f"Avg energy: {avg_e:.2f}")
+        print(f"++++++++ Evaluation Info ++++++++\n")
 
         self.eval_timesteps.append(self.current_timestep)
-        self.eval_actions.append(action_data)
-        self.eval_rewards.append(reward_data)
-        self.eval_successes.append(success_data)
-        self.eval_times.append(time_data)
-        self.eval_energies.append(energy_data)
+        self.eval_actions.append(actions_data)
+        self.eval_rewards.append(rewards_data)
+        self.eval_successes.append(successes_data)
+        self.eval_times.append(times_data)
+        self.eval_energies.append(energies_data)
+        self.eval_relations.append(relations_data)
+        self.eval_obs.append(obs_data)
+        self.eval_objs.append(objs_data)
 
     def save_evaluation(self,eval_log_path):
         filename = "evaluations.npz"
@@ -251,5 +295,8 @@ class Trainer():
             rewards=self.eval_rewards,
             successes=self.eval_successes,
             times=self.eval_times,
-            energies=self.eval_energies
+            energies=self.eval_energies,
+            relations=self.eval_relations,
+            obs=self.eval_obs,
+            objs=self.eval_objs
         )
