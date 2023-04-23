@@ -42,26 +42,47 @@ class PolicyNetwork(nn.Module):
         self.iqn = IQN(feature_2_dimension,iqn_hidden_dimension,action_size,device,seed)
         
     def forward(self,x,num_tau=8,cvar=1.0):
+        x_2 = None
+        x_3 = None
+
         if self.cooperative:
-            assert len(x) == 3, "The number of state types of a cooperative agent must be 4!"
-            x_1, x_2, x_3, idx_array = x
-
-            X_feature = self.self_encoder(x_1).unsqueeze(0)
-            if x_2 is not None:
-                x_2_feature = self.static_encoder(x_2)
-                X_feature = torch.cat((X_feature,x_2_feature),dim=0)
-            if x_3 is not None:
-                x_3_feature = self.dynamic_encoder(x_3,idx_array)
-                X_feature = torch.cat((X_feature,x_3_feature),dim=0)
+            assert len(x) == 6, "The number of state types of a cooperative agent must be 6!"
+            x_1, x_2, x_2_num, x_3, x_3_num, x_3_idx = x
         else:
-            assert len(x) == 2, "The number of state types of a non-cooperative agent must be 2!"
-            x_1, x_2 = x
+            assert len(x) == 3, "The number of state types of a non-cooperative agent must be 3!"
+            x_1, x_2, x_2_num = x
 
-            X_feature = self.self_encoder(x_1).unsqueeze(0)
-            if x_2 is not None:
-                x_2_feature = self.static_encoder(x_2)
-                X_feature = torch.cat((X_feature,x_2_feature),dim=0)
+        x_1_feature_batch = self.self_encoder(x_1).unsqueeze(1)
+        batch_size = x_1_feature_batch.shape[0]
+        
+        max_size = 0
+        if x_2 is not None:
+            x_2_feature = self.static_encoder(x_2)
+            max_size += torch.diff(x_2_num).max()
+        if x_3 is not None:
+            x_3_feature = self.dynamic_encoder(x_3,x_3_idx)
+            max_size += torch.diff(x_3_num).max()
+        
+        # reorganize dynamic and static features into the graph batch
+        x_2_3_feature_batch = None
+        if max_size > 0:
+            x_2_3_feature_batch = torch.zeros((batch_size,max_size,self.feature_dimension))
 
+            for i in range(batch_size):
+                if x_2 is not None:
+                    # fill in static features
+                    x_2_idx = x_2_num[i+1]-x_2_num[i]
+                    x_2_3_feature_batch[i,:x_2_idx,:] = x_2_feature[x_2_num[i]:x_2_num[i+1],:]
+                if x_3 is not None:
+                    # fill in dynamic features
+                    x_3_idx = x_3_num[i+1]-x_3_num[i]
+                    x_2_3_feature_batch[i,x_2_idx:x_2_idx+x_3_idx,:] = x_3_feature[x_3_num[i]:x_3_num[i+1],:]
+
+        X_feature = x_1_feature_batch
+        if x_2_3_feature_batch is not None:
+            X_feature = torch.cat((X_feature,x_2_3_feature_batch),dim=1)
+
+        # TODO: enable batch for gcn and iqn
         R_matrix, self_interation_feature = self.gcn(X_feature)
         quantiles, taus = self.iqn(self_interation_feature,num_tau,cvar)
         return quantiles, taus, R_matrix
