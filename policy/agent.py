@@ -16,14 +16,15 @@ class Agent():
                  action_size=9,
                  dynamic_dimension=4,
                  cooperative=True, 
-                 BATCH_SIZE=32, 
+                 BATCH_SIZE=1, 
                  BUFFER_SIZE=1_000_000,
                  LR=1e-4, 
                  TAU=1.0, 
                  GAMMA=0.99,  
                  device="cpu", 
-                 seed_1=0,
-                 seed_2=1):
+                 seed_1=100,
+                 seed_2=101,
+                 training=True):
         
         self.cooperative = cooperative
         self.device = device
@@ -32,17 +33,20 @@ class Agent():
         self.GAMMA = GAMMA
         self.BUFFER_SIZE = BUFFER_SIZE
         self.BATCH_SIZE = BATCH_SIZE
+        self.training = training
+        self.action_size = action_size
 
-        self.policy_local = PolicyNetwork(self_dimension,static_dimension,feature_dimension,
-                                          gcn_hidden_dimension,feature_2_dimension,iqn_hidden_dimension,
-                                          action_size,dynamic_dimension,cooperative,seed_1).to(device)
-        self.policy_target = PolicyNetwork(self_dimension,static_dimension,feature_dimension,
-                                          gcn_hidden_dimension,feature_2_dimension,iqn_hidden_dimension,
-                                          action_size,dynamic_dimension,cooperative,seed_2).to(device)
+        if training:
+            self.policy_local = PolicyNetwork(self_dimension,static_dimension,feature_dimension,
+                                            gcn_hidden_dimension,feature_2_dimension,iqn_hidden_dimension,
+                                            action_size,dynamic_dimension,cooperative,device,seed_1).to(device)
+            self.policy_target = PolicyNetwork(self_dimension,static_dimension,feature_dimension,
+                                            gcn_hidden_dimension,feature_2_dimension,iqn_hidden_dimension,
+                                            action_size,dynamic_dimension,cooperative,device,seed_2).to(device)
         
-        self.optimizer = optim.Adam(self.policy_local.parameters(), lr=self.LR)
+            self.optimizer = optim.Adam(self.policy_local.parameters(), lr=self.LR)
 
-        self.memory = ReplayBuffer(BUFFER_SIZE,BATCH_SIZE)
+            self.memory = ReplayBuffer(BUFFER_SIZE,BATCH_SIZE)
 
     def act(self, state, eps=0.0, cvar=1.0):
         """Returns action index and quantiles 
@@ -51,10 +55,10 @@ class Agent():
             frame: to adjust epsilon
             state (array_like): current state
         """
-        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        state_t = self.state_to_tensor(state) 
         self.policy_local.eval()
         with torch.no_grad():
-            quantiles, taus, R_matrix = self.policy_local(state, self.policy_local.K, cvar)
+            quantiles, taus, R_matrix = self.policy_local(state_t, self.policy_local.iqn.K, cvar)
             action_values = quantiles.mean(dim=0)
         self.policy_local.train()
 
@@ -96,6 +100,24 @@ class Agent():
 
         return cvar
     
+    def state_to_tensor(self,samples):
+        # TODO: organize batch
+        if self.cooperative:
+            for sample in samples:
+                self_state,static_states,dynamic_states,idx_array = sample
+
+            self_state_t = torch.tensor(self_state).float().to(self.device)
+            static_states_t = torch.tensor(static_states).float().to(self.device) if len(static_states)>0 else None
+            dynamic_states_t = torch.tensor(dynamic_states).float().to(self.device) if len(dynamic_states)>0 else None
+            idx_array_t = torch.tensor(idx_array).float().to(self.device) if len(idx_array)>0 else None
+            return (self_state_t,static_states_t,dynamic_states_t,idx_array_t)
+        else:
+            self_state,static_states = state
+            self_state_t = torch.tensor(self_state).float().to(self.device)
+            static_states_t = torch.tensor(static_states).float().to(self.device) if len(static_states)>0 else None
+            return (self_state_t,static_states_t)
+        
+    
     def train(self):
         """Update value parameters using given batch of experience tuples
         Params
@@ -107,18 +129,22 @@ class Agent():
         batch = self.memory.sample()
         for sample in batch:
             state, action, reward, next_state, done = sample
+            state_t = self.state_to_tensor(state)
+            action_t = torch.tensor(action).to(self.device)
+            next_state_t = self.state_to_tensor(next_state)
+            done_t = torch.tensor(done).float().to(self.device)
             
             self.optimizer.zero_grad()
         
             # Get max predicted quantile values (for next states) from target model
-            Q_target_next, _, _ = self.policy_target(next_state)
+            Q_target_next, _, _ = self.policy_target(next_state_t)
             action_next = Q_target_next.mean(0).argmax()
             Q_target_next = Q_target_next[:,action_next].detach().unsqueeze(0) # (1, N) 
-            Q_target = reward + (self.GAMMA * Q_target_next * (1. - done))
+            Q_target = reward + (self.GAMMA * Q_target_next * (1. - done_t))
             
             # Get expected quantile values (not expected values) from local model
-            Q_expected, taus, _ = self.policy_local(state)
-            Q_expected = Q_expected[:,action].unsqueeze(0)
+            Q_expected, taus, _ = self.policy_local(state_t)
+            Q_expected = Q_expected[:,action_t].unsqueeze(0).permute(1,0)
 
             # Quantile Huber loss
             td_error = Q_target - Q_expected
@@ -126,15 +152,14 @@ class Agent():
             huber_l = calculate_huber_loss(td_error, 1.0)
             quantil_l = abs(taus -(td_error.detach() < 0).float()) * huber_l / 1.0
             
-            loss = quantil_l.sum(dim=1).mean(dim=1) # keepdim=True if per weights get multiple
-            loss = loss.mean()
+            loss = quantil_l.mean()
 
             # minimize the loss
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.policy_local.parameters(), 0.5)
             self.optimizer.step()
 
-    def soft_update(self, local_model, target_model):
+    def soft_update(self):
         """Soft update model parameters.
         θ_target = τ * θ_local + (1 - τ) * θ_target
         Params
@@ -143,11 +168,14 @@ class Agent():
             target_model (PyTorch model): weights will be copied to
             tau (float): interpolation parameter
         """
-        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
+        for target_param, local_param in zip(self.policy_target.parameters(), self.policy_local.parameters()):
             target_param.data.copy_(self.TAU * local_param.data + (1.0 - self.TAU) * target_param.data)
 
     def save_latest_model(self,directory):
         self.policy_local.save(directory)
+
+    def load_model(self,path,agent_type,device="cpu"):
+        self.policy_local = PolicyNetwork.load(path,agent_type,device)
 
 
 def calculate_huber_loss(td_errors, k=1.0):

@@ -24,8 +24,6 @@ class ReplayBuffer:
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
         samples = random.sample(self.memory, k=self.batch_size)
-        for sample in samples:
-            [torch.tensor(element) for element in sample]
         return samples
 
     def size(self):

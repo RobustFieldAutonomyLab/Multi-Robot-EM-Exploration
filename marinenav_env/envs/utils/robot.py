@@ -97,8 +97,11 @@ class Robot:
         w /= np.max(self.w)
         return np.abs(a) + np.abs(w)
     
+    def dist_to_goal(self):
+        return np.linalg.norm(self.goal - np.array([self.x,self.y]))
+
     def check_reach_goal(self):
-        if np.linalg.norm(self.goal - np.array([self.x,self.y])) <= self.goal_dis:
+        if self.dist_to_goal() <= self.goal_dis:
             self.reach_goal = True
 
     def reset_state(self,current_velocity=np.zeros(2)):

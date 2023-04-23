@@ -2,6 +2,7 @@ import json
 import numpy as np
 import os
 import copy
+import time
 
 class Trainer():
     def __init__(self,
@@ -10,7 +11,7 @@ class Trainer():
                  eval_schedule,
                  non_cooperative_agent,
                  cooperative_agent=None,
-                 UPDATE_EVERY=4,
+                 UPDATE_EVERY=1,
                  learning_starts=10000,
                  target_update_interval=10000,
                  exploration_fraction=0.1,
@@ -67,8 +68,9 @@ class Trainer():
                 self.eval_config.append(self.eval_env.episode_data())
                 count += 1
 
-    def save_eval_config(self,filename):
-        with open(filename, "w+") as f:
+    def save_eval_config(self,directory):
+        file = os.path.join(directory,"eval_configs.json")
+        with open(file, "w+") as f:
             json.dump(self.eval_config, f)
 
     def learn(self,
@@ -77,7 +79,7 @@ class Trainer():
               eval_log_path,
               verbose=True):
         
-        states = self.train_env.reset()
+        states,_,_ = self.train_env.reset()
 
         # # Sample CVaR value from (0.0,1.0)
         # cvar = 1 - np.random.uniform(0.0, 1.0)
@@ -88,9 +90,12 @@ class Trainer():
         ep_num = 0
         
         while self.current_timestep <= total_timesteps:
+            start_1 = time.time()
+
             eps = self.linear_eps(total_timesteps)
             
             # gather actions for robots from agents 
+            start_2 = time.time()
             actions = []
             for i,rob in enumerate(self.train_env.robots):
                 if rob.reach_goal:
@@ -102,6 +107,10 @@ class Trainer():
                 else:
                     action,_,_,_ = self.noncooperative_agent.act(states[i],eps)
                 actions.append(action)
+            end_2 = time.time()
+            elapsed_time_2 = end_2 - start_2
+            if self.current_timestep % 100 == 0:
+                print("Elapsed time 2: {:.6f} seconds".format(elapsed_time_2))
 
             # execute actions in the training environment
             next_states, rewards, dones, infos, end_episode = self.train_env.step(actions)
@@ -113,18 +122,25 @@ class Trainer():
 
                 if rob.cooperative:
                     ep_rewards[i] += self.cooperative_agent.GAMMA ** ep_length * rewards[i]
-                    self.cooperative_agent.memory.add((states[i], actions[i], rewards[i], next_states[i], dones[i]))
+                    if self.cooperative_agent.training:
+                        self.cooperative_agent.memory.add((states[i], actions[i], rewards[i], next_states[i], dones[i]))
                 else:
                     ep_rewards[i] += self.noncooperative_agent.GAMMA ** ep_length * rewards[i]
-                    self.noncooperative_agent.memory.add((states[i], actions[i], rewards[i], next_states[i], dones[i]))
+                    if self.noncooperative_agent.training:
+                        self.noncooperative_agent.memory.add((states[i], actions[i], rewards[i], next_states[i], dones[i]))
                 
             states = next_states
             ep_length += 1
             
             # Learn, update and evaluate models after learning_starts time step 
             if self.current_timestep >= self.learning_starts:
+                start_3 = time.time()
+
                 for agent in [self.cooperative_agent,self.noncooperative_agent]:
                     if agent is None:
+                        continue
+
+                    if not agent.training:
                         continue
 
                     # Learn every UPDATE_EVERY time steps.
@@ -135,14 +151,21 @@ class Trainer():
 
                     # Update the target model every target_update_interval time steps
                     if self.learning_timestep % self.target_update_interval == 0:
-                        agent.soft_update(self.policy_local, self.policy_target)
+                        agent.soft_update()
+
+                end_3 = time.time()
+                elapsed_time_3 = end_3 - start_3
+                if self.current_timestep % 100 == 0:
+                    print("Elapsed time 3: {:.6f} seconds".format(elapsed_time_3))
 
                 # Evaluate learning agents every eval_freq time steps
                 if self.learning_timestep % eval_freq == 0: 
-                    self.evaluation()
+                    # self.evaluation()
 
                     for agent in [self.cooperative_agent,self.noncooperative_agent]:
                         if agent is None:
+                            continue
+                        if not agent.training:
                             continue
                         # save the latest models
                         agent.save_latest_model(eval_log_path)
@@ -160,7 +183,7 @@ class Trainer():
                     print("current exploration rate: ",eps)
                     print("current timesteps: ",self.current_timestep)
                     print("total timesteps: ",total_timesteps)
-                    print("======== Episode Info ========")
+                    print("======== Episode Info ========\n")
                     print("======== Robots Info ========")
                     for i,rob in enumerate(self.train_env.robots):
                         info = infos[i]["state"]
@@ -170,10 +193,15 @@ class Trainer():
                 ep_rewards = np.zeros(len(self.train_env.robots))
                 ep_length = 0
 
-                states = self.train_env.reset()
+                states,_,_ = self.train_env.reset()
                 # cvar = 1 - np.random.uniform(0.0, 1.0)
 
             self.current_timestep += 1
+
+            end_1 = time.time()
+            elapsed_time_1 = end_1 - start_1
+            if self.current_timestep % 100 == 0:
+                print("Elapsed time 1: {:.6f} seconds".format(elapsed_time_1))
 
     def linear_eps(self,total_timesteps):
         
@@ -202,9 +230,9 @@ class Trainer():
         
         for idx, config in enumerate(self.eval_config):
             print(f"Evaluating episode {idx}")
-            state = self.eval_env.reset_with_eval_config(config)
-            obs = [[copy.deepcopy(rob.observed_obs)] for rob in self.eval_env.robots]
-            objs = [[copy.deepcopy(rob.observed_objs)] for rob in self.eval_env.robots]
+            state,_,_ = self.eval_env.reset_with_eval_config(config)
+            obs = [[copy.deepcopy(rob.perception.observed_obs)] for rob in self.eval_env.robots]
+            objs = [[copy.deepcopy(rob.perception.observed_objs)] for rob in self.eval_env.robots]
             
             rob_num = len(self.eval_env.robots)
 
@@ -230,7 +258,7 @@ class Trainer():
                         a,quantiles,taus,R_matrix = self.noncooperative_agent.act(state[i])
                     action.append(a)
                     actions[i].append(a)
-                    relations[i].append(R_matrix.to_list())
+                    relations[i].append(R_matrix.tolist())
 
                 # execute actions in the training environment
                 state, reward, done, info, end_episode = self.train_env.step(action)
@@ -245,8 +273,8 @@ class Trainer():
                         rewards[i] += self.noncooperative_agent.GAMMA ** length * reward[i]
                     times[i] += rob.dt * rob.N
                     energies[i] += rob.compute_action_energy_cost(action[i])
-                    obs[i].append(copy.deepcopy(rob.observed_obs))
-                    objs[i].append(copy.deepcopy(rob.observed_objs))
+                    obs[i].append(copy.deepcopy(rob.perception.observed_obs))
+                    objs[i].append(copy.deepcopy(rob.perception.observed_objs))
 
                 length += 1
 

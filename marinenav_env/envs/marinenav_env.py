@@ -82,7 +82,7 @@ class MarineNavEnv2(gym.Env):
             self.num_obs = self.schedule["num_obstacles"][idx]
             self.min_start_goal_dis = self.schedule["min_start_goal_dis"][idx]
 
-            print("======== training schedule ========")
+            print("\n======== training schedule ========")
             print("num of cooperative agents: ",self.num_cooperative)
             print("num of non-cooperative agents: ",self.num_non_cooperative)
             print("num of cores: ",self.num_cores)
@@ -576,8 +576,8 @@ class MarineNavEnv2(gym.Env):
             episode["robots"]["w"].append(list(rob.w))
             episode["robots"]["start"].append(list(rob.start))
             episode["robots"]["goal"].append(list(rob.goal))
-            episode["robots"]["init_theta"].append(self.init_theta)
-            episode["robots"]["init_speed"].append(self.init_speed)
+            episode["robots"]["init_theta"].append(rob.init_theta)
+            episode["robots"]["init_speed"].append(rob.init_speed)
 
             episode["robots"]["perception"]["range"].append(rob.perception.range)
             episode["robots"]["perception"]["angle"].append(rob.perception.angle)

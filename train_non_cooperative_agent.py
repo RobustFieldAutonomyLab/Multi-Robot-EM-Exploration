@@ -80,7 +80,57 @@ def run_trial(device,params):
 
     # schedule of curriculum training
     training_schedule = dict(timesteps=[0,1000000,2000000],
+                             num_cooperative=[0,0,0],
+                             num_non_cooperative=[1,1,1],
                              num_cores=[4,6,8],
                              num_obstacles=[6,8,10],
                              min_start_goal_dis=[30.0,35.0,40.0],
                              )
+    
+    eval_schedule = dict(num_episodes=[10,10,10],
+                         num_cooperative=[0,0,0],
+                         num_non_cooperative=[1,1,1],
+                         num_cores=[4,6,8],
+                         num_obstacles=[6,8,10],
+                         min_start_goal_dis=[30.0,35.0,40.0],
+                         )
+    
+    train_env = MarineNavEnv2(seed=params["seed"],schedule=training_schedule)
+
+    eval_env = MarineNavEnv2(seed=253)
+
+    non_cooperative_agent = Agent(cooperative=False,device=device)
+
+    trainer = Trainer(train_env=train_env,
+                      eval_env=eval_env,
+                      eval_schedule=eval_schedule,
+                      non_cooperative_agent=non_cooperative_agent)
+    
+    trainer.save_eval_config(exp_dir)
+
+    trainer.learn(total_timesteps=params["total_timesteps"],
+                  eval_freq=params["eval_freq"],
+                  eval_log_path=exp_dir)
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+    params = json.load(args.config_file)
+    params_dashboard(params)
+    trial_param_list = trial_params(params)
+
+    dt = datetime.now()
+    timestamp = dt.strftime("%Y-%m-%d-%H-%M-%S")
+
+    if args.num_procs == 1:
+        for param in trial_param_list:
+            param["training_time"]=timestamp
+            run_trial(args.device,param)
+    else:
+        with Pool(processes=args.num_procs) as pool:
+            for param in trial_param_list:
+                param["training_time"]=timestamp
+                pool.apply_async(run_trial,(args.device,param))
+            
+            pool.close()
+            pool.join()    
+
