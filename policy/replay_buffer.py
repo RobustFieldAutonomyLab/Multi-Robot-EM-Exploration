@@ -21,37 +21,6 @@ class ReplayBuffer:
     def add(self,item):
         """Add a new experience to memory."""
         self.memory.append(item)
-
-    def state_batch(self,states):   
-        self_state_batch = []
-        static_batch = []
-        static_nums = [0]
-        if self.cooperative:
-            dynamic_batch = []
-            dynamic_nums = [0]
-            dynamic_indices = []
-            count = 0
-        
-        for state in states:
-            self_state_batch.append(state[0])
-
-            last_num = 0 if len(static_nums) == 0 else static_nums[-1]
-            static_nums.append(last_num + len(state[1]))
-            for feature in state[1]:
-                static_batch.append(feature)
-
-            if self.cooperative:
-                last_num = 0 if len(dynamic_nums) == 0 else dynamic_nums[-1]
-                dynamic_nums.append(last_num + len(state[2]))
-                for i,feature in enumerate(state[2]):
-                    dynamic_batch.append(feature)
-                    dynamic_indices.append([count,state[3][i][-1]])
-                    count += 1
-
-        if self.cooperative:
-            return (self_state_batch,static_batch,static_nums,dynamic_batch,dynamic_nums,dynamic_indices)
-        else:
-            return (self_state_batch,static_batch,static_nums) 
     
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
@@ -69,11 +38,42 @@ class ReplayBuffer:
             next_states.append(next_state)
             dones.append(done)
 
-        states = self.state_batch(states)
-        next_states = self.state_batch(next_states)
+        states = state_batch(self.cooperative,states)
+        next_states = state_batch(self.cooperative,next_states)
 
         return states, actions, rewards, next_states, dones
 
     def size(self):
         """Return the current size of internal memory."""
         return len(self.memory)
+    
+def state_batch(cooperative,states):   
+        self_state_batch = []
+        static_batch = []
+        static_nums = [0]
+        if cooperative:
+            dynamic_batch = []
+            dynamic_nums = [0]
+            dynamic_indices = []
+            count = 0
+        
+        for state in states:
+            self_state_batch.append(state[0])
+
+            last_num = 0 if len(static_nums) == 1 else static_nums[-1]
+            static_nums.append(last_num + len(state[1]))
+            for feature in state[1]:
+                static_batch.append(feature)
+
+            if cooperative:
+                last_num = 0 if len(dynamic_nums) == 1 else dynamic_nums[-1]
+                dynamic_nums.append(last_num + len(state[2]))
+                for i,feature in enumerate(state[2]):
+                    dynamic_batch.append(feature)
+                    dynamic_indices.append([count,state[3][i][-1]])
+                    count += 1
+
+        if cooperative:
+            return (self_state_batch,static_batch,static_nums,dynamic_batch,dynamic_nums,dynamic_indices)
+        else:
+            return (self_state_batch,static_batch,static_nums) 

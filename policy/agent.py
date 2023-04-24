@@ -1,7 +1,7 @@
 import torch
 import torch.optim as optim
 from policy.models import PolicyNetwork
-from policy.replay_buffer import ReplayBuffer
+from policy.replay_buffer import ReplayBuffer, state_batch
 import numpy as np
 import random
 
@@ -16,7 +16,7 @@ class Agent():
                  action_size=9,
                  dynamic_dimension=4,
                  cooperative=True, 
-                 BATCH_SIZE=1, 
+                 BATCH_SIZE=32, 
                  BUFFER_SIZE=1_000_000,
                  LR=1e-4, 
                  TAU=1.0, 
@@ -55,11 +55,12 @@ class Agent():
             frame: to adjust epsilon
             state (array_like): current state
         """
-        state_t = self.state_to_tensor(state) 
+        state = state_batch(self.cooperative,[state])
+        state = self.state_to_tensor(state) 
         self.policy_local.eval()
         with torch.no_grad():
-            quantiles, taus, R_matrix = self.policy_local(state_t, self.policy_local.iqn.K, cvar)
-            action_values = quantiles.mean(dim=0)
+            quantiles, taus, R_matrix = self.policy_local(state, self.policy_local.iqn.K, cvar)
+            action_values = quantiles.mean(dim=1)
         self.policy_local.train()
 
         # epsilon-greedy action selection

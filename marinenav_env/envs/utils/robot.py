@@ -224,6 +224,7 @@ class Robot:
 
 
     def perception_output(self,obstacles,robots):
+        # TODO: remove LiDAR reflection computations and check dynamic obstacle observation error
         if self.reach_goal:
             return None, False, True
         

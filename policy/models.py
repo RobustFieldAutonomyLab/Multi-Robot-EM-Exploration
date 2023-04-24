@@ -29,12 +29,13 @@ class PolicyNetwork(nn.Module):
         self.action_size = action_size
         self.dynamic_dimension = dynamic_dimension,
         self.cooperative = cooperative
+        self.device = device
         self.seed = seed
 
         self.self_encoder = encoder(self_dimension,feature_dimension)
         self.static_encoder = encoder(static_dimension,feature_dimension)
         if self.cooperative:
-            self.dynamic_encoder = DynamicEncoder(dynamic_dimension,feature_dimension)
+            self.dynamic_encoder = DynamicEncoder(dynamic_dimension,feature_dimension,device)
         else:
             self.dynamic_encoder = None
 
@@ -66,17 +67,20 @@ class PolicyNetwork(nn.Module):
         # reorganize dynamic and static features into the graph batch
         x_2_3_feature_batch = None
         if max_size > 0:
-            x_2_3_feature_batch = torch.zeros((batch_size,max_size,self.feature_dimension))
+            x_2_3_feature_batch = torch.zeros((batch_size,max_size,self.feature_dimension)).to(self.device)
 
             for i in range(batch_size):
+                curr_idx = 0
                 if x_2 is not None:
                     # fill in static features
                     x_2_idx = x_2_num[i+1]-x_2_num[i]
-                    x_2_3_feature_batch[i,:x_2_idx,:] = x_2_feature[x_2_num[i]:x_2_num[i+1],:]
+                    x_2_3_feature_batch[i,:curr_idx+x_2_idx,:] = x_2_feature[x_2_num[i]:x_2_num[i+1],:]
+                    curr_idx += x_2_idx
                 if x_3 is not None:
                     # fill in dynamic features
                     x_3_idx = x_3_num[i+1]-x_3_num[i]
-                    x_2_3_feature_batch[i,x_2_idx:x_2_idx+x_3_idx,:] = x_3_feature[x_3_num[i]:x_3_num[i+1],:]
+                    x_2_3_feature_batch[i,curr_idx:curr_idx+x_3_idx,:] = x_3_feature[x_3_num[i]:x_3_num[i+1],:]
+                    curr_idx += x_3_idx
 
         X_feature = x_1_feature_batch
         if x_2_3_feature_batch is not None:
@@ -128,16 +132,16 @@ class PolicyNetwork(nn.Module):
 
 
 class DynamicEncoder(nn.Module):
-    def __init__(self,dynamic_dimension,feature_dimension):
+    def __init__(self,dynamic_dimension,feature_dimension,device):
         super().__init__()
         self.feature_dimension = feature_dimension
         self.encoder = nn.RNN(dynamic_dimension,feature_dimension,batch_first=True)
+        self.device = device
     
     def forward(self,x,idx_array):
-        assert len(idx_array) == 2, "The dimension of index_array must be 2"
-        h0 = torch.zeros(1,x.size(0),self.feature_dimension)
+        h0 = torch.zeros(1,x.size(0),self.feature_dimension).to(self.device)
         hiddens, _ = self.encoder(x,h0)
-        return hiddens[idx_array[:,0],idx_array[:,0],:]
+        return hiddens[idx_array[:,0],idx_array[:,1],:]
 
 
 def encoder(input_dimension,output_dimension):
@@ -156,15 +160,15 @@ class GCN(nn.Module):
 
     def forward(self,x):
         # compute the realtion matrix from the feature matrix
-        R = torch.matmul(torch.matmul(x,self.wr),x.permute(1,0))
-        R = softmax(R,dim=1)
+        R = torch.matmul(torch.matmul(x,self.wr),x.permute(0,2,1))
+        R = softmax(R,dim=2)
 
         # compute new features that encodes interactions
         x = relu(torch.matmul(torch.matmul(R,x),self.w1))
         x = relu(torch.matmul(torch.matmul(R,x),self.w2))
 
         # return the self feature 
-        self_x = x[0,:]
+        self_x = x[:,0,:]
         return R, self_x
 
 
@@ -181,7 +185,7 @@ class IQN(nn.Module):
         self.device = device
 
         # quantile encoder
-        self.pis = torch.FloatTensor([np.pi * i for i in range(self.n)]).unsqueeze(0).to(device)
+        self.pis = torch.FloatTensor([np.pi * i for i in range(self.n)]).view(1,1,self.n).to(device)
         self.cos_embedding = nn.Linear(self.n,feature_dimension)
 
         # hidden layers
@@ -189,29 +193,32 @@ class IQN(nn.Module):
         self.hidden_layer_2 = nn.Linear(hidden_dimension, hidden_dimension)
         self.output_layer = nn.Linear(hidden_dimension, action_size)
 
-    def calc_cos(self, num_tau=8, cvar=1.0):
+    def calc_cos(self, batch_size, num_tau=8, cvar=1.0):
         """
         Calculating the cosinus values depending on the number of tau samples
         """
-        taus = torch.rand(num_tau).to(self.device).unsqueeze(-1)
+        taus = torch.rand(batch_size,num_tau).to(self.device).unsqueeze(-1)
 
         # distorted quantile sampling
         taus = taus * cvar
 
         cos = torch.cos(taus * self.pis)
-        assert cos.shape == (num_tau, self.n), "cos shape is incorrect"
+        assert cos.shape == (batch_size, num_tau, self.n), "cos shape is incorrect"
         return cos, taus
 
 
     def forward(self, x, num_tau=8, cvar=1.0):
+        batch_size = x.shape[0]
+        
         # encode quantiles as features
-        cos, taus = self.calc_cos(num_tau, cvar)
-        cos_features = relu(self.cos_embedding(cos))
+        cos, taus = self.calc_cos(batch_size, num_tau, cvar)
+        cos = cos.view(batch_size*num_tau, self.n)
+        cos_features = relu(self.cos_embedding(cos)).view(batch_size,num_tau,self.feature_dimension)
 
         # pairwise product of the input feature and cosine features
-        x = x.unsqueeze(0) * cos_features
+        x = (x.unsqueeze(1) * cos_features).view(batch_size*num_tau,self.feature_dimension)
         
         x = relu(self.hidden_layer(x))
         x = relu(self.hidden_layer_2(x))
         quantiles = self.output_layer(x)
-        return quantiles, taus
+        return quantiles.view(batch_size,num_tau,self.action_size), taus
