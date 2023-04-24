@@ -131,20 +131,20 @@ class Agent():
 
         states, actions, rewards, next_states, dones = self.memory.sample()
         states = self.state_to_tensor(states)
-        actions = torch.tensor(actions).to(self.device)
-        rewards = torch.tensor(rewards).float().to(self.device)
+        actions = torch.tensor(actions).unsqueeze(-1).to(self.device)
+        rewards = torch.tensor(rewards).unsqueeze(-1).float().to(self.device)
         next_states = self.state_to_tensor(next_states)
-        dones = torch.tensor(dones).float().to(self.device)
+        dones = torch.tensor(dones).unsqueeze(-1).float().to(self.device)
 
         self.optimizer.zero_grad()
         # Get max predicted Q values (for next states) from target model
-        Q_targets_next, _ = self.policy_target(next_states)
+        Q_targets_next,_,_ = self.policy_target(next_states)
         Q_targets_next = Q_targets_next.detach().max(2)[0].unsqueeze(1) # (batch_size, 1, N)
         
         # Compute Q targets for current states 
-        Q_targets = rewards.unsqueeze(-1) + (self.GAMMA ** self.n_step * Q_targets_next * (1. - dones.unsqueeze(-1)))
+        Q_targets = rewards.unsqueeze(-1) + (self.GAMMA * Q_targets_next * (1. - dones.unsqueeze(-1)))
         # Get expected Q values from local model
-        Q_expected, taus = self.policy_local(states)
+        Q_expected,taus,_ = self.policy_local(states)
         Q_expected = Q_expected.gather(2, actions.unsqueeze(-1).expand(self.BATCH_SIZE, 8, 1))
 
         # Quantile Huber loss
@@ -160,6 +160,8 @@ class Agent():
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.policy_local.parameters(), 0.5)
         self.optimizer.step()
+
+        return loss.detach().cpu().numpy()
 
     def soft_update(self):
         """Soft update model parameters.
@@ -185,5 +187,5 @@ def calculate_huber_loss(td_errors, k=1.0):
     Calculate huber loss element-wisely depending on kappa k.
     """
     loss = torch.where(td_errors.abs() <= k, 0.5 * td_errors.pow(2), k * (td_errors.abs() - 0.5 * k))
-    assert loss.shape == (8, 8), "huber loss has wrong shape"
+    assert loss.shape == (td_errors.shape[0], 8, 8), "huber loss has wrong shape"
     return loss

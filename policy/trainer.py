@@ -11,8 +11,8 @@ class Trainer():
                  eval_schedule,
                  non_cooperative_agent=None,
                  cooperative_agent=None,
-                 UPDATE_EVERY=1,
-                 learning_starts=1000,
+                 UPDATE_EVERY=4,
+                 learning_starts=10000,
                  target_update_interval=10000,
                  exploration_fraction=0.1,
                  initial_eps=1.0,
@@ -90,12 +90,12 @@ class Trainer():
         ep_num = 0
         
         while self.current_timestep <= total_timesteps:
-            start_1 = time.time()
-
+            
+            start_all = time.time()
             eps = self.linear_eps(total_timesteps)
             
             # gather actions for robots from agents 
-            start_2 = time.time()
+            start_1 = time.time()
             actions = []
             for i,rob in enumerate(self.train_env.robots):
                 if rob.reach_goal:
@@ -107,13 +107,18 @@ class Trainer():
                 else:
                     action,_,_,_ = self.noncooperative_agent.act(states[i],eps)
                 actions.append(action)
+            end_1 = time.time()
+            elapsed_time_1 = end_1 - start_1
+            if self.current_timestep % 100 == 0:
+                print("Elapsed time 1: {:.6f} seconds".format(elapsed_time_1))
+
+            start_2 = time.time()
+            # execute actions in the training environment
+            next_states, rewards, dones, infos, end_episode = self.train_env.step(actions)
             end_2 = time.time()
             elapsed_time_2 = end_2 - start_2
             if self.current_timestep % 100 == 0:
                 print("Elapsed time 2: {:.6f} seconds".format(elapsed_time_2))
-
-            # execute actions in the training environment
-            next_states, rewards, dones, infos, end_episode = self.train_env.step(actions)
 
             # save experience in replay memory
             for i,rob in enumerate(self.train_env.robots):
@@ -160,7 +165,8 @@ class Trainer():
 
                 # Evaluate learning agents every eval_freq time steps
                 if self.learning_timestep % eval_freq == 0: 
-                    # self.evaluation()
+                    self.evaluation()
+                    self.save_evaluation(eval_log_path)
 
                     for agent in [self.cooperative_agent,self.noncooperative_agent]:
                         if agent is None:
@@ -196,12 +202,12 @@ class Trainer():
                 states,_,_ = self.train_env.reset()
                 # cvar = 1 - np.random.uniform(0.0, 1.0)
 
-            self.current_timestep += 1
-
-            end_1 = time.time()
-            elapsed_time_1 = end_1 - start_1
+            end_all = time.time()
+            elapsed_time_all = end_all - start_all
             if self.current_timestep % 100 == 0:
-                print("Elapsed time 1: {:.6f} seconds".format(elapsed_time_1))
+                print("one step elapsed time: {:.6f} seconds".format(elapsed_time_all))
+            
+            self.current_timestep += 1
 
     def linear_eps(self,total_timesteps):
         

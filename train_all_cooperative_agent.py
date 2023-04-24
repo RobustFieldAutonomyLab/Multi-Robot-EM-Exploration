@@ -80,24 +80,18 @@ def run_trial(device,params):
 
     # schedule of curriculum training
     training_schedule = dict(timesteps=[0,1000000,2000000],
-                            #  num_cooperative=[0,0,0],
-                            #  num_non_cooperative=[1,1,1],
-                             num_cooperative=[6,6,6],
+                             num_cooperative=[2,4,6],
                              num_non_cooperative=[0,0,0],
                              num_cores=[4,6,8],
-                            #  num_obstacles=[6,8,10],
-                             num_obstacles=[10,10,10],
+                             num_obstacles=[6,8,10],
                              min_start_goal_dis=[30.0,35.0,40.0],
                              )
     
     eval_schedule = dict(num_episodes=[10,10,10],
-                        #  num_cooperative=[0,0,0],
-                        #  num_non_cooperative=[1,1,1],
-                         num_cooperative=[6,6,6],
+                         num_cooperative=[2,4,6],
                          num_non_cooperative=[0,0,0],
                          num_cores=[4,6,8],
-                        #  num_obstacles=[6,8,10],
-                         num_obstacles=[10,10,10],
+                         num_obstacles=[6,8,10],
                          min_start_goal_dis=[30.0,35.0,40.0],
                          )
     

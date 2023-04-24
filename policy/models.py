@@ -53,9 +53,11 @@ class PolicyNetwork(nn.Module):
             assert len(x) == 3, "The number of state types of a non-cooperative agent must be 3!"
             x_1, x_2, x_2_num = x
 
+        # self state features batch
         x_1_feature_batch = self.self_encoder(x_1).unsqueeze(1)
         batch_size = x_1_feature_batch.shape[0]
         
+        # static and dynamic state featrues
         max_size = 0
         if x_2 is not None:
             x_2_feature = self.static_encoder(x_2)
@@ -85,9 +87,32 @@ class PolicyNetwork(nn.Module):
         X_feature = x_1_feature_batch
         if x_2_3_feature_batch is not None:
             X_feature = torch.cat((X_feature,x_2_3_feature_batch),dim=1)
+        
+        # compute relation
+        R_matrix = torch.zeros((batch_size,max_size+1,max_size+1)).to(self.device)
+        for i in range(batch_size):
+            x_no_pad_feature = x_1_feature_batch[i,:,:]
+            size = 1
+            if x_2 is not None:
+                if x_2_num[i] < x_2_num[i+1]:
+                    x_2_no_pad_feature = x_2_feature[x_2_num[i]:x_2_num[i+1],:]
+                    size += x_2_num[i+1]-x_2_num[i]
+                    if len(x_2_no_pad_feature.shape) == 1:
+                        x_2_no_pad_feature = x_2_no_pad_feature.unsqueeze(0)
+                    x_no_pad_feature = torch.cat((x_no_pad_feature,x_2_no_pad_feature),dim=0)
+            if x_3 is not None:
+                if x_3_num[i] < x_3_num[i+1]:
+                    x_3_no_pad_feature = x_3_feature[x_3_num[i]:x_3_num[i+1],:]
+                    size += x_3_num[i+1]-x_3_num[i]
+                    if len(x_3_no_pad_feature.shape) == 1:
+                        x_3_no_pad_feature = x_3_no_pad_feature.unsqueeze(0)
+                    x_no_pad_feature = torch.cat((x_no_pad_feature,x_3_no_pad_feature),dim=0)
+            
+            R = self.gcn.compute_relation(x_no_pad_feature)
+            R_matrix[i,:size,:size] = R
 
-        # TODO: enable batch for gcn and iqn
-        R_matrix, self_interation_feature = self.gcn(X_feature)
+
+        self_interation_feature = self.gcn(X_feature,R_matrix)
         quantiles, taus = self.iqn(self_interation_feature,num_tau,cvar)
         return quantiles, taus, R_matrix
     
@@ -158,18 +183,20 @@ class GCN(nn.Module):
         self.w2 = nn.Parameter(torch.randn(hidden_dimension,output_dimension))
         self.wr = nn.Parameter(torch.randn(feature_dimension,feature_dimension))
 
-    def forward(self,x):
-        # compute the realtion matrix from the feature matrix
-        R = torch.matmul(torch.matmul(x,self.wr),x.permute(0,2,1))
-        R = softmax(R,dim=2)
+    def compute_relation(self,x):
+        assert len(x.shape) == 2, "compute relation matrix of an individual graph without padding!"
+        R = torch.matmul(torch.matmul(x,self.wr),x.permute(1,0))
+        R = softmax(R,dim=1)
+        return R
 
+    def forward(self,x,R):
         # compute new features that encodes interactions
         x = relu(torch.matmul(torch.matmul(R,x),self.w1))
         x = relu(torch.matmul(torch.matmul(R,x),self.w2))
 
         # return the self feature 
         self_x = x[:,0,:]
-        return R, self_x
+        return self_x
 
 
 class IQN(nn.Module):

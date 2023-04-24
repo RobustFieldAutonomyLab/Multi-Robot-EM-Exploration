@@ -7,11 +7,7 @@ class Perception:
         # 2D LiDAR model with detection area as a sector
         self.range = 15.0 # range of beams (meter)
         self.angle = 2 * np.pi # detection angle range
-        self.num_beams = 181 # number of beams (asssume each is a line)
         self.len_obs_history = 5 # the window size of observation history
-        self.compute_phi() # interval angle between two beams
-        self.compute_beam_angles() # relative angles to the center
-        self.reflections = [] # LiDAR reflection point, indicator (0: nothing, 1: static, 2: dyanmic), and object index
         self.observation_format(cooperative)
         self.observed_obs = [] # indices of observed static obstacles
         self.observed_objs = [] # indiced of observed dynamic objects
@@ -25,14 +21,6 @@ class Perception:
         else:
             self.observation = dict(self=[],static=[])
 
-    def compute_phi(self):
-        self.phi = self.angle / (self.num_beams-1)
-
-    def compute_beam_angles(self):
-        self.beam_angles = []
-        angle = -self.angle/2
-        for i in range(self.num_beams):
-            self.beam_angles.append(angle + i * self.phi)
 
 class Robot:
 
@@ -157,51 +145,63 @@ class Robot:
         else:
             return False
 
-    def compute_intersection(self,angle,obj_x,obj_y,obj_r):
-        # compute the intersection point of a LiDAR beam with an object
-        if np.abs(angle - np.pi/2) < 1e-03 or \
-            np.abs(angle - 3*np.pi/2) < 1e-03:
-            # vertical line
-            M = obj_r*obj_r - (self.x-obj_x)*(self.x-obj_x)
+    # def compute_intersection(self,angle,obj_x,obj_y,obj_r):
+    #     # compute the intersection point of a LiDAR beam with an object
+    #     if np.abs(angle - np.pi/2) < 1e-03 or \
+    #         np.abs(angle - 3*np.pi/2) < 1e-03:
+    #         # vertical line
+    #         M = obj_r*obj_r - (self.x-obj_x)*(self.x-obj_x)
             
-            if M < 0.0:
-                # no real solution
-                return None
+    #         if M < 0.0:
+    #             # no real solution
+    #             return None
             
-            x1 = self.x
-            x2 = self.x
-            y1 = obj_y - np.sqrt(M)
-            y2 = obj_y + np.sqrt(M)
-        else:
-            K = np.tan(angle)
-            a = 1 + K*K
-            b = 2*K*(self.y-K*self.x-obj_y)-2*obj_x
-            c = obj_x*obj_x + \
-                (self.y-K*self.x-obj_y)*(self.y-K*self.x-obj_y) - \
-                obj_r*obj_r
-            delta = b*b - 4*a*c
+    #         x1 = self.x
+    #         x2 = self.x
+    #         y1 = obj_y - np.sqrt(M)
+    #         y2 = obj_y + np.sqrt(M)
+    #     else:
+    #         K = np.tan(angle)
+    #         a = 1 + K*K
+    #         b = 2*K*(self.y-K*self.x-obj_y)-2*obj_x
+    #         c = obj_x*obj_x + \
+    #             (self.y-K*self.x-obj_y)*(self.y-K*self.x-obj_y) - \
+    #             obj_r*obj_r
+    #         delta = b*b - 4*a*c
             
-            if delta < 0.0:
-                # no real solution
-                return None
+    #         if delta < 0.0:
+    #             # no real solution
+    #             return None
             
-            x1 = (-b-np.sqrt(delta))/(2*a)
-            x2 = (-b+np.sqrt(delta))/(2*a)
-            y1 = self.y+K*(x1-self.x)
-            y2 = self.y+K*(x2-self.x)
+    #         x1 = (-b-np.sqrt(delta))/(2*a)
+    #         x2 = (-b+np.sqrt(delta))/(2*a)
+    #         y1 = self.y+K*(x1-self.x)
+    #         y2 = self.y+K*(x2-self.x)
 
-        v1 = np.array([x1-self.x,y1-self.y])
-        v2 = np.array([x2-self.x,y2-self.y])
+    #     v1 = np.array([x1-self.x,y1-self.y])
+    #     v2 = np.array([x2-self.x,y2-self.y])
 
-        v = v1 if np.linalg.norm(v1) < np.linalg.norm(v2) else v2
-        if np.linalg.norm(v) > self.perception.range:
-            # beyond detection range
-            return None
-        if np.dot(v,np.array([np.cos(angle),np.sin(angle)])) < 0.0:
-            # the intersection point is in the opposite direction of the beam
-            return None
+    #     v = v1 if np.linalg.norm(v1) < np.linalg.norm(v2) else v2
+    #     if np.linalg.norm(v) > self.perception.range:
+    #         # beyond detection range
+    #         return None
+    #     if np.dot(v,np.array([np.cos(angle),np.sin(angle)])) < 0.0:
+    #         # the intersection point is in the opposite direction of the beam
+    #         return None
         
-        return v
+    #     return v
+
+    def check_detection(self,obj_x,obj_y,obj_r):
+        proj_pos = self.project_to_robot_frame(np.array([obj_x,obj_y]),False)
+        
+        if np.linalg.norm(proj_pos) > self.perception.range + obj_r:
+            return False
+        
+        angle = np.arctan2(proj_pos[1],proj_pos[0])
+        if angle < -0.5*self.perception.angle or angle > 0.5*self.perception.angle:
+            return False
+        
+        return True
     
     def project_to_robot_frame(self,x,is_vector=True):
         assert isinstance(x,np.ndarray), "the input needs to be an numpy array"
@@ -228,7 +228,6 @@ class Robot:
         if self.reach_goal:
             return None, False, True
         
-        self.perception.reflections.clear()
         self.perception.observation["static"].clear()
 
         ##### self observation (velocity and goal in self frame) #####
@@ -249,99 +248,138 @@ class Robot:
         collision = False
         self.check_reach_goal()
 
-        for rel_a in self.perception.beam_angles:
-            angle = self.theta + rel_a
+        # static obstacles observation 
+        for i,obs in enumerate(obstacles):
+            if not self.check_detection(obs.x,obs.y,obs.r):
+                continue
 
-            # initialize the beam reflection as null
-            # if a beam does not have reflection, set the reflection point distance
-            # twice as long as the beam range, and set indicator to 0
-            if np.abs(angle - np.pi/2) < 1e-03 or \
-                np.abs(angle - 3*np.pi/2) < 1e-03:
-                d = 2.0 if np.abs(angle - np.pi/2) < 1e-03 else -2.0
-                x = self.x
-                y = self.y + d*self.perception.range
-            else:
-                d = 2.0
-                x = self.x + d * self.perception.range * np.cos(angle)
-                y = self.y + d * self.perception.range * np.sin(angle)
+            self.perception.observed_obs.append(i)
 
-            self.perception.reflections.append([x,y,0,-1])
-            
-            # compute the beam reflection from static obstcales 
-            reflection_dist = np.infty  
-            for i,obs in enumerate(obstacles):
-                
-                p = self.compute_intersection(angle,obs.x,obs.y,obs.r)
+            if not collision:
+                collision = self.check_collision(obs.x,obs.y,obs.r)
 
-                if p is None:
-                    continue
+            pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
+            self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
 
-                if self.perception.reflections[-1][-1] != 0:
-                    # check if the current intersection point is closer
-                    if np.linalg.norm(p) >= reflection_dist: 
-                        continue
-                
-                reflection_dist = np.linalg.norm(p)
-                self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,1,i]
-
-            # compute the beam reflection from dynamic objects
+        if self.cooperative:
+            # dynamic objects observation
             for j,robot in enumerate(robots):
                 if robot is self:
                     continue
                 if robot.reach_goal:
                     # This robot is in the deactivate state, and abscent from the current map
                     continue
-
-                p = self.compute_intersection(angle,robot.x,robot.y,robot.detect_r)
-
-                if p is None:
+                if not self.check_detection(robot.x,robot.y,robot.detect_r):
                     continue
 
-                if self.perception.reflections[-1][-1] != 0:
-                    # check if the current intersection point is closer
-                    if np.linalg.norm(p) >= reflection_dist: 
-                        continue
+                self.perception.observed_objs.append(j)
+                
+                if not collision:
+                    collision = self.check_collision(robot.x,robot.y,robot.r)
+
+                pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
+                v_r = self.project_to_robot_frame(robot.velocity)
+                new_obs = list(np.concatenate((pos_r,v_r)))
+                if j in self.perception.observation["dynamic"].copy().keys():
+                    self.perception.observation["dynamic"][j].append(new_obs)
+                    while len(self.perception.observation["dynamic"][j]) > self.perception.len_obs_history:
+                        del self.perception.observation["dynamic"][j][0]
+                else:
+                    self.perception.observation["dynamic"][j] = [new_obs]
+
+        # for rel_a in self.perception.beam_angles:
+        #     angle = self.theta + rel_a
+
+        #     # initialize the beam reflection as null
+        #     # if a beam does not have reflection, set the reflection point distance
+        #     # twice as long as the beam range, and set indicator to 0
+        #     if np.abs(angle - np.pi/2) < 1e-03 or \
+        #         np.abs(angle - 3*np.pi/2) < 1e-03:
+        #         d = 2.0 if np.abs(angle - np.pi/2) < 1e-03 else -2.0
+        #         x = self.x
+        #         y = self.y + d*self.perception.range
+        #     else:
+        #         d = 2.0
+        #         x = self.x + d * self.perception.range * np.cos(angle)
+        #         y = self.y + d * self.perception.range * np.sin(angle)
+
+        #     self.perception.reflections.append([x,y,0,-1])
             
-                reflection_dist = np.linalg.norm(p)
-                self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,2,j]
+        #     # compute the beam reflection from static obstcales 
+        #     reflection_dist = np.infty  
+        #     for i,obs in enumerate(obstacles):
+                
+        #         p = self.compute_intersection(angle,obs.x,obs.y,obs.r)
 
-            tp = self.perception.reflections[-1][2]
-            idx = self.perception.reflections[-1][-1]
+        #         if p is None:
+        #             continue
 
-            if tp == 1:
-                if idx not in self.perception.observed_obs:
-                    # add the new static object observation into the observation
-                    self.perception.observed_obs.append(idx)
-                    obs = obstacles[idx]
+        #         if self.perception.reflections[-1][-1] != 0:
+        #             # check if the current intersection point is closer
+        #             if np.linalg.norm(p) >= reflection_dist: 
+        #                 continue
+                
+        #         reflection_dist = np.linalg.norm(p)
+        #         self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,1,i]
 
-                    if not collision:
-                        collision = self.check_collision(obs.x,obs.y,obs.r)
+        #     # compute the beam reflection from dynamic objects
+        #     for j,robot in enumerate(robots):
+        #         if robot is self:
+        #             continue
+        #         if robot.reach_goal:
+        #             # This robot is in the deactivate state, and abscent from the current map
+        #             continue
 
-                    pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
-                    self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
+        #         p = self.compute_intersection(angle,robot.x,robot.y,robot.detect_r)
+
+        #         if p is None:
+        #             continue
+
+        #         if self.perception.reflections[-1][-1] != 0:
+        #             # check if the current intersection point is closer
+        #             if np.linalg.norm(p) >= reflection_dist: 
+        #                 continue
+            
+        #         reflection_dist = np.linalg.norm(p)
+        #         self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,2,j]
+
+        #     tp = self.perception.reflections[-1][2]
+        #     idx = self.perception.reflections[-1][-1]
+
+        #     if tp == 1:
+        #         if idx not in self.perception.observed_obs:
+        #             # add the new static object observation into the observation
+        #             self.perception.observed_obs.append(idx)
+        #             obs = obstacles[idx]
+
+        #             if not collision:
+        #                 collision = self.check_collision(obs.x,obs.y,obs.r)
+
+        #             pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
+        #             self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
                     
-            elif tp == 2 and self.cooperative:
-                if idx not in self.perception.observed_objs:
-                    # In a cooperative agent, also include dynamic object observation
-                    self.perception.observed_objs.append(idx)
-                    robot = robots[idx]
-                    assert robot.reach_goal is False, "robots that reach goal must be removed!"
+        #     elif tp == 2 and self.cooperative:
+        #         if idx not in self.perception.observed_objs:
+        #             # In a cooperative agent, also include dynamic object observation
+        #             self.perception.observed_objs.append(idx)
+        #             robot = robots[idx]
+        #             assert robot.reach_goal is False, "robots that reach goal must be removed!"
                     
-                    if not collision:
-                        collision = self.check_collision(robot.x,robot.y,obs.r)
+        #             if not collision:
+        #                 collision = self.check_collision(robot.x,robot.y,obs.r)
 
-                    pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
-                    v_r = self.project_to_robot_frame(robot.velocity)
-                    new_obs = list(np.concatenate((pos_r,v_r)))
-                    if idx in self.perception.observation["dynamic"].keys():
-                        self.perception.observation["dynamic"][idx].append(new_obs)
-                        while len(self.perception.observation["dynamic"][idx]) > self.perception.len_obs_history:
-                            del self.perception.observation["dynamic"][idx][0]
-                    else:
-                        self.perception.observation["dynamic"][idx] = [new_obs]
+        #             pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
+        #             v_r = self.project_to_robot_frame(robot.velocity)
+        #             new_obs = list(np.concatenate((pos_r,v_r)))
+        #             if idx in self.perception.observation["dynamic"].copy().keys():
+        #                 self.perception.observation["dynamic"][idx].append(new_obs)
+        #                 while len(self.perception.observation["dynamic"][idx]) > self.perception.len_obs_history:
+        #                     del self.perception.observation["dynamic"][idx][0]
+        #             else:
+        #                 self.perception.observation["dynamic"][idx] = [new_obs]
 
         if self.cooperative:
-            for idx in self.perception.observation["dynamic"].keys():
+            for idx in self.perception.observation["dynamic"].copy().keys():
                 if idx not in self.perception.observed_objs:
                     # remove the observation history if the object is not observed in the current step
                     del self.perception.observation["dynamic"][idx]
@@ -350,7 +388,7 @@ class Robot:
         static_states = copy.deepcopy(self.perception.observation["static"])
         if self.cooperative:
             # remove object indices 
-            dynamic_states = list(self.perception.observation["dynamic"].values())
+            dynamic_states = copy.deepcopy(list(self.perception.observation["dynamic"].values()))
             idx_array = []
             for idx,obs_history in enumerate(dynamic_states):
                 # pad the dynamic observation and save the indices of exact lastest element

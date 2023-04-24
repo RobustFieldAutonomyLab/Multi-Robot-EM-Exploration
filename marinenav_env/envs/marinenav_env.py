@@ -489,7 +489,7 @@ class MarineNavEnv2(gym.Env):
             
             rob.perception.range = eval_config["robots"]["perception"]["range"][i]
             rob.perception.angle = eval_config["robots"]["perception"]["angle"][i]
-            rob.perception.num_beams = eval_config["robots"]["perception"]["num_beams"][i]
+            # rob.perception.num_beams = eval_config["robots"]["perception"]["num_beams"][i]
             rob.perception.len_obs_history = eval_config["robots"]["perception"]["len_obs_history"][i]
 
             current_v = self.get_velocity(rob.start[0],rob.start[1])
@@ -556,7 +556,7 @@ class MarineNavEnv2(gym.Env):
         episode["robots"]["perception"] = {}
         episode["robots"]["perception"]["range"] = []
         episode["robots"]["perception"]["angle"] = []
-        episode["robots"]["perception"]["num_beams"] = []
+        # episode["robots"]["perception"]["num_beams"] = []
         episode["robots"]["perception"]["len_obs_history"] = []
 
         episode["robots"]["action_history"] = []
@@ -581,7 +581,7 @@ class MarineNavEnv2(gym.Env):
 
             episode["robots"]["perception"]["range"].append(rob.perception.range)
             episode["robots"]["perception"]["angle"].append(rob.perception.angle)
-            episode["robots"]["perception"]["num_beams"].append(rob.perception.num_beams)
+            # episode["robots"]["perception"]["num_beams"].append(rob.perception.num_beams)
             episode["robots"]["perception"]["len_obs_history"].append(rob.perception.len_obs_history)
 
             episode["robots"]["action_history"].append(copy.deepcopy(rob.action_history))
