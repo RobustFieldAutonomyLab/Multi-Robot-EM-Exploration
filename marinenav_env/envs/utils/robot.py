@@ -100,7 +100,8 @@ class Robot:
         self.y = self.start[1]
         self.theta = self.init_theta 
         self.speed = self.init_speed
-        self.update_velocity(current_velocity) 
+        self.update_velocity(current_velocity)
+        self.trajectory.append([self.x,self.y,self.theta,self.speed,self.velocity[0],self.velocity[1]]) 
 
     def get_robot_transform(self):
         # compute transformation from world frame to robot frame

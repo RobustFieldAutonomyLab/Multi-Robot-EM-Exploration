@@ -8,6 +8,7 @@ import copy
 import scipy.spatial
 import gym
 import json
+import os
 
 class EnvVisualizer:
 
@@ -49,7 +50,10 @@ class EnvVisualizer:
         self.video_plots = video_plots # draw video plots
         self.plots_save_dir = None # video plots save directory 
         self.dpi = dpi # monitor DPI
-        self.agent = None # agent name 
+        self.agent = None # agent name
+        
+        self.configs = None # evaluation configs
+        self.episodes = None # evaluation episodes to visualize 
 
     def init_visualize(self,
                        env_configs=None # used in Mode 2
@@ -145,7 +149,7 @@ class EnvVisualizer:
 
         if self.draw_envs and env_configs is not None:
             for i,env_config in enumerate(env_configs):
-                self.load_episode(env_config)
+                self.load_env_config(env_config)
                 self.plot_graph(self.axis_graphs[i])
         else:
             self.plot_graph(self.axis_graph)
@@ -279,7 +283,7 @@ class EnvVisualizer:
         self.axis_action.spines["right"].set_visible(False)
         self.axis_action.spines["bottom"].set_visible(False)
 
-    def plot_measurements(self,robot_idx):
+    def plot_measurements(self,robot_idx,R_matrix=None):
         self.axis_perception.clear()
         self.axis_observation.clear()
         self.axis_dvl.clear()
@@ -293,7 +297,7 @@ class EnvVisualizer:
         legend_size = 12
         font_size = 15
         
-        observation = rob.perception_output(self.env.obstacles,self.env.robots)
+        rob.perception_output(self.env.obstacles,self.env.robots)
         
         # # plot Sonar beams in the world frame
         # for point in self.env.robot.sonar.reflections:
@@ -315,37 +319,55 @@ class EnvVisualizer:
         self.axis_perception.add_patch(mpl.patches.Circle((0,0), \
                                        rob.perception.range, color=c, \
                                        alpha = 0.2))
-        
+        self_scale = 2.0
+        self.axis_perception.add_patch(mpl.patches.Rectangle((-0.5*self_scale*rob.width,-0.5*self_scale*rob.length), \
+                                       self_scale*rob.width,self_scale*rob.length, color=c))
+
         x_pos = 0
         y_pos = 0
+        relation_pos = [[0.0,0.0]]
 
-        for i,obj_history in enumerate(observation["dynamic"]):
-            # plot the current position
-            pos = obj_history[-1][:2]
-            # rotate by 90 degree
-            self.axis_perception.add_patch(mpl.patches.Circle((-pos[1],pos[0]), \
-                                           rob.detect_r, color="b"))
-            # include history into observation info
-            for ob in obj_history:
-                self.axis_observation.text(x_pos,y_pos,f"position: ({ob[0]:.2f},{ob[1]:.2f}), velocity: ({ob[2]:.2f},{ob[3]:.2f})")
-                y_pos += 1
-            
-            self.axis_observation.text(x_pos,y_pos,f"Object {i} history",fontweight="bold",fontsize=15)
-            y_pos += 2
-        
-        self.axis_observation.text(x_pos,y_pos,"Dynamic objects",fontweight="bold",fontsize=15)
-        y_pos += 2
-
-        for i,obs in enumerate(observation["static"]):
+        for i,obs in enumerate(rob.perception.observation["static"]):
             # rotate by 90 degree 
             self.axis_perception.add_patch(mpl.patches.Circle((-obs[1],obs[0]), \
                                            obs[2], color="m"))
+            relation_pos.append([-obs[1],obs[0]])
             # include into observation info
             self.axis_observation.text(x_pos,y_pos,f"Obstacles {i} position: ({obs[0]:.2f},{obs[1]:.2f}), radius: {obs[2]:.2f}")
             y_pos += 1
-        
+
         self.axis_observation.text(x_pos,y_pos,"Static obstacles",fontweight="bold",fontsize=15)
-        y_pos += 1
+        y_pos += 2
+
+        if rob.cooperative:
+            for i,obj_history in enumerate(rob.perception.observation["dynamic"].values()):
+                # plot the current position
+                pos = obj_history[-1][:2]
+                # rotate by 90 degree
+                self.axis_perception.add_patch(mpl.patches.Circle((-pos[1],pos[0]), \
+                                            rob.detect_r, color="b"))
+                relation_pos.append([-pos[1],pos[0]])
+                # include history into observation info
+                for ob in obj_history:
+                    self.axis_observation.text(x_pos,y_pos,f"position: ({ob[0]:.2f},{ob[1]:.2f}), velocity: ({ob[2]:.2f},{ob[3]:.2f})")
+                    y_pos += 1
+                
+                self.axis_observation.text(x_pos,y_pos,f"Object {i} history",fontweight="bold",fontsize=15)
+                y_pos += 2
+            
+            self.axis_observation.text(x_pos,y_pos,"Dynamic objects",fontweight="bold",fontsize=15)
+            y_pos += 2
+        
+
+        if R_matrix is not None:
+            # plot relation matrix
+            length = len(R_matrix)
+            assert len(relation_pos) == length, "The number of objects do not match size of the relation matrix"
+            for i in range(length):
+                for j in range(length):
+                    self.axis_perception.plot([relation_pos[i][0],relation_pos[j][0]], \
+                                              [relation_pos[i][1],relation_pos[j][1]],
+                                              linewidth=2*R_matrix[i][j],color='k',zorder=0)
 
         type = "cooperative" if rob.cooperative else "non-cooperative"
         self.axis_observation.text(x_pos,y_pos,f"Showing the observation of robot {robot_idx} ({type})",fontweight="bold",fontsize=20)
@@ -372,7 +394,7 @@ class EnvVisualizer:
 
 
         # plot robot velocity in the robot frame (rotate x-axis by 90 degree (upward) in the plot)
-        abs_velocity_r = observation["self"][2:]
+        abs_velocity_r = rob.perception.observation["self"][2:]
         h1 = self.axis_dvl.arrow(0.0,0.0,0.0,1.0, \
                        color='k', \
                        width = 0.02, \
@@ -403,7 +425,7 @@ class EnvVisualizer:
 
 
         # give goal position info in the robot frame
-        goal_r = observation["self"][:2]
+        goal_r = rob.perception.observation["self"][:2]
         x1 = 0.07
         x2 = x1 + 0.13
         self.axis_goal.text(x1,0.5,"Goal Position (Relative)",fontsize=font_size)
@@ -555,7 +577,7 @@ class EnvVisualizer:
                 self.one_step(action)
             plt.show()
 
-    def load_episode(self,episode_dict):
+    def load_env_config(self,episode_dict):
         episode = copy.deepcopy(episode_dict)
 
         # load env config
@@ -652,30 +674,52 @@ class EnvVisualizer:
             # load action values
             self.episode_actions_values = episode["robot"]["actions_values"]
 
-    def load_episode_from_eval_files(self,config_f,eval_f,eval_id,env_id):
+    def load_env_config_from_eval_files(self,config_f,eval_f,eval_id,env_id):
         with open(config_f,"r") as f:
             episodes = json.load(f)
         episode = episodes[f"env_{env_id}"]
         eval_file = np.load(eval_f,allow_pickle=True)
         episode["robot"]["action_history"] = copy.deepcopy(eval_file["actions"][eval_id][env_id])
-        self.load_episode(episode)
+        self.load_env_config(episode)
 
-    def load_episode_from_json_file(self,filename):
+    def load_env_config_from_json_file(self,filename):
         with open(filename,"r") as f:
             episode = json.load(f)
-        self.load_episode(episode)
+        self.load_env_config(episode)
 
-    def play_episode(self,start_idx=0):
-        for plot in self.robot_traj_plot:
-            plot[0].remove()
-        self.robot_traj_plot.clear()
+    # def play_episode(self,start_idx=0):
+    #     for plot in self.robot_traj_plot:
+    #         plot[0].remove()
+    #     self.robot_traj_plot.clear()
 
-        current_v = self.env.get_velocity(self.env.start[0],self.env.start[1])
-        self.env.robot.reset_state(self.env.start[0],self.env.start[1], current_velocity=current_v)
+    #     current_v = self.env.get_velocity(self.env.start[0],self.env.start[1])
+    #     self.env.robot.reset_state(self.env.start[0],self.env.start[1], current_velocity=current_v)
 
+    #     self.init_visualize()
+
+    #     self.visualize_control(self.episode_actions,start_idx)
+
+    def load_eval_config_and_episode(self,config_file,eval_file):
+        with open(config_file,"r") as f:
+            self.configs = json.load(f)
+
+        self.episodes = np.load(eval_file,allow_pickle=True)
+
+    def play_eval_episode(self,eval_id,episode_id,robot_id):
+        self.env.reset_with_eval_config(self.configs[episode_id])
         self.init_visualize()
+        
+        relations = self.episodes["relations"][eval_id][episode_id][robot_id]
+        actions = self.episodes["actions"][eval_id][episode_id]
 
-        self.visualize_control(self.episode_actions,start_idx)
+        for i in range(len(relations)):
+            self.plot_robots()
+            self.plot_measurements(robot_id,relations[i][0])
+            action = [actions[j][i] for j in range(len(self.env.robots))]
+            self.env.step(action)
+            plt.show(block=False)
+            plt.pause(1)
+
 
     def draw_trajectory(self,
                         only_ep_actions:bool=True, # only draw the resulting trajectory of actions in episode data 
@@ -735,7 +779,7 @@ class EnvVisualizer:
     def draw_video_plots(self,episode,save_dir,start_idx,agent):
         # Used in Mode 4
         self.agent = agent
-        self.load_episode(episode)
+        self.load_env_config(episode)
         self.plots_save_dir = save_dir
         self.play_episode(start_idx)
         return self.step

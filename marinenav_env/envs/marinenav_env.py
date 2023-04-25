@@ -201,8 +201,9 @@ class MarineNavEnv2(gym.Env):
             for _ in range(rob.N):
                 current_velocity = self.get_velocity(rob.x, rob.y)
                 rob.update_state(action,current_velocity)
-                # save trajectory
-                rob.trajectory.append([rob.x,rob.y,rob.theta,rob.speed,rob.velocity[0],rob.velocity[1]])
+            
+            # save robot state
+            rob.trajectory.append([rob.x,rob.y,rob.theta,rob.speed,rob.velocity[0],rob.velocity[1]])
 
             dis_after = rob.dist_to_goal()
 

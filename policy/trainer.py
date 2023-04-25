@@ -42,6 +42,7 @@ class Trainer():
         # Evaluation data
         self.eval_timesteps = []
         self.eval_actions = []
+        self.eval_trajectories = []
         self.eval_rewards = []
         self.eval_successes = []
         self.eval_times = []
@@ -195,12 +196,12 @@ class Trainer():
                         info = infos[i]["state"]
                         print(f"Robot {i} ep reward: {ep_rewards[i]:.2f}, {info}")
                     print("======== Robots Info ========\n") 
-                
-                ep_rewards = np.zeros(len(self.train_env.robots))
-                ep_length = 0
 
                 states,_,_ = self.train_env.reset()
                 # cvar = 1 - np.random.uniform(0.0, 1.0)
+
+                ep_rewards = np.zeros(len(self.train_env.robots))
+                ep_length = 0
 
             # end_all = time.time()
             # elapsed_time_all = end_all - start_all
@@ -226,6 +227,7 @@ class Trainer():
             eval_config: eval envs config file
         """
         actions_data = []
+        trajectories_data = []
         rewards_data = []
         successes_data = []
         times_data = []
@@ -242,7 +244,6 @@ class Trainer():
             
             rob_num = len(self.eval_env.robots)
 
-            actions = [[] for _ in range(rob_num)]
             relations = [[] for _ in range(rob_num)]
             rewards = [0.0]*rob_num
             times = [0.0]*rob_num
@@ -263,7 +264,6 @@ class Trainer():
                     else:
                         a,quantiles,taus,R_matrix = self.noncooperative_agent.act(state[i])
                     action.append(a)
-                    actions[i].append(a)
                     relations[i].append(R_matrix.tolist())
 
                 # execute actions in the training environment
@@ -284,10 +284,16 @@ class Trainer():
 
                 length += 1
 
+            actions = []
+            trajectories = []
+            for rob in self.eval_env.robots:
+                actions.append(copy.deepcopy(rob.action_history))
+                trajectories.append(copy.deepcopy(rob.trajectory))
 
             success = True if self.eval_env.check_all_reach_goal() else False
 
             actions_data.append(actions)
+            trajectories_data.append(trajectories)
             rewards_data.append(np.mean(rewards))
             successes_data.append(success)
             times_data.append(np.mean(times))
@@ -312,6 +318,7 @@ class Trainer():
 
         self.eval_timesteps.append(self.current_timestep)
         self.eval_actions.append(actions_data)
+        self.eval_trajectories.append(trajectories_data)
         self.eval_rewards.append(rewards_data)
         self.eval_successes.append(successes_data)
         self.eval_times.append(times_data)
@@ -327,6 +334,7 @@ class Trainer():
             os.path.join(eval_log_path,filename),
             timesteps=self.eval_timesteps,
             actions=self.eval_actions,
+            trajectories=self.eval_trajectories,
             rewards=self.eval_rewards,
             successes=self.eval_successes,
             times=self.eval_times,
