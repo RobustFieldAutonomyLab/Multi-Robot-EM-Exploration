@@ -91,11 +91,11 @@ class Trainer():
         
         while self.current_timestep <= total_timesteps:
             
-            start_all = time.time()
+            # start_all = time.time()
             eps = self.linear_eps(total_timesteps)
             
             # gather actions for robots from agents 
-            start_1 = time.time()
+            # start_1 = time.time()
             actions = []
             for i,rob in enumerate(self.train_env.robots):
                 if rob.reach_goal:
@@ -107,18 +107,18 @@ class Trainer():
                 else:
                     action,_,_,_ = self.noncooperative_agent.act(states[i],eps)
                 actions.append(action)
-            end_1 = time.time()
-            elapsed_time_1 = end_1 - start_1
-            if self.current_timestep % 100 == 0:
-                print("Elapsed time 1: {:.6f} seconds".format(elapsed_time_1))
+            # end_1 = time.time()
+            # elapsed_time_1 = end_1 - start_1
+            # if self.current_timestep % 100 == 0:
+            #     print("Elapsed time 1: {:.6f} seconds".format(elapsed_time_1))
 
-            start_2 = time.time()
+            # start_2 = time.time()
             # execute actions in the training environment
             next_states, rewards, dones, infos, end_episode = self.train_env.step(actions)
-            end_2 = time.time()
-            elapsed_time_2 = end_2 - start_2
-            if self.current_timestep % 100 == 0:
-                print("Elapsed time 2: {:.6f} seconds".format(elapsed_time_2))
+            # end_2 = time.time()
+            # elapsed_time_2 = end_2 - start_2
+            # if self.current_timestep % 100 == 0:
+            #     print("Elapsed time 2: {:.6f} seconds".format(elapsed_time_2))
 
             # save experience in replay memory
             for i,rob in enumerate(self.train_env.robots):
@@ -139,7 +139,7 @@ class Trainer():
             
             # Learn, update and evaluate models after learning_starts time step 
             if self.current_timestep >= self.learning_starts:
-                start_3 = time.time()
+                # start_3 = time.time()
 
                 for agent in [self.cooperative_agent,self.noncooperative_agent]:
                     if agent is None:
@@ -158,10 +158,10 @@ class Trainer():
                     if self.learning_timestep % self.target_update_interval == 0:
                         agent.soft_update()
 
-                end_3 = time.time()
-                elapsed_time_3 = end_3 - start_3
-                if self.current_timestep % 100 == 0:
-                    print("Elapsed time 3: {:.6f} seconds".format(elapsed_time_3))
+                # end_3 = time.time()
+                # elapsed_time_3 = end_3 - start_3
+                # if self.current_timestep % 100 == 0:
+                #     print("Elapsed time 3: {:.6f} seconds".format(elapsed_time_3))
 
                 # Evaluate learning agents every eval_freq time steps
                 if self.learning_timestep % eval_freq == 0: 
@@ -202,10 +202,10 @@ class Trainer():
                 states,_,_ = self.train_env.reset()
                 # cvar = 1 - np.random.uniform(0.0, 1.0)
 
-            end_all = time.time()
-            elapsed_time_all = end_all - start_all
-            if self.current_timestep % 100 == 0:
-                print("one step elapsed time: {:.6f} seconds".format(elapsed_time_all))
+            # end_all = time.time()
+            # elapsed_time_all = end_all - start_all
+            # if self.current_timestep % 100 == 0:
+            #     print("one step elapsed time: {:.6f} seconds".format(elapsed_time_all))
             
             self.current_timestep += 1
 
@@ -267,7 +267,7 @@ class Trainer():
                     relations[i].append(R_matrix.tolist())
 
                 # execute actions in the training environment
-                state, reward, done, info, end_episode = self.train_env.step(action)
+                state, reward, done, info, end_episode = self.eval_env.step(action)
                 
                 for i,rob in enumerate(self.eval_env.robots):
                     if rob.reach_goal:
@@ -288,25 +288,26 @@ class Trainer():
             success = True if self.eval_env.check_all_reach_goal() else False
 
             actions_data.append(actions)
-            rewards_data.append(rewards)
+            rewards_data.append(np.mean(rewards))
             successes_data.append(success)
-            times_data.append(times)
-            energies_data.append(energies)
+            times_data.append(np.mean(times))
+            energies_data.append(np.mean(energies))
             relations_data.append(relations)
             obs_data.append(obs)
             objs_data.append(objs)
         
         avg_r = np.mean(rewards_data)
         success_rate = np.sum(successes_data)/len(successes_data)
-        # idx = np.where(np.array(successes_data) == 1)[0]
-        # avg_t = np.mean(np.array(time_data)[idx])
-        # avg_e = np.mean(np.array(energy_data)[idx])
+        idx = np.where(np.array(successes_data) == 1)[0]
+        avg_t = None if np.shape(idx)[0] == 0 else np.mean(np.array(times_data)[idx])
+        avg_e = None if np.shape(idx)[0] == 0 else np.mean(np.array(energies_data)[idx])
 
         print(f"++++++++ Evaluation Info ++++++++")
         print(f"Avg cumulative reward: {avg_r:.2f}")
         print(f"Success rate: {success_rate:.2f}")
-        # print(f"Avg time: {avg_t:.2f}")
-        # print(f"Avg energy: {avg_e:.2f}")
+        if avg_t is not None:
+            print(f"Avg time: {avg_t:.2f}")
+            print(f"Avg energy: {avg_e:.2f}")
         print(f"++++++++ Evaluation Info ++++++++\n")
 
         self.eval_timesteps.append(self.current_timestep)
