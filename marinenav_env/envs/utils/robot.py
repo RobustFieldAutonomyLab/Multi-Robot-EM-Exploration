@@ -2,81 +2,125 @@ import numpy as np
 import copy
 
 
-
 class Perception:
 
-    def __init__(self,cooperative:bool=False):
+    def __init__(self, cooperative: bool = False):
         # 2D LiDAR model with detection area as a sector
-        self.range = 15.0 # range of beams (meter)
-        self.angle = 2 * np.pi # detection angle range
-        self.len_obs_history = 1 # the window size of observation history
+        self.range = 15.0  # range of beams (meter)
+        self.angle = 2 * np.pi  # detection angle range
+        self.len_obs_history = 1  # the window size of observation history
         self.observation_format(cooperative)
-        self.observed_obs = [] # indices of observed static obstacles
-        self.observed_objs = [] # indiced of observed dynamic objects
+        self.observed_obs = []  # indices of observed static obstacles
+        self.observed_objs = []  # indiced of observed dynamic objects
 
-    def observation_format(self,cooperative:bool=False):
+    def observation_format(self, cooperative: bool = False):
         # format: {"self": [velocity,goal], 
         #          "static":[[obs_1.x,obs_1.y,obs_1.r],...,[obs_n.x,obs_n.y,obs_n.r]],
         #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}
         if cooperative:
-            self.observation = dict(self=[],static=[],dynamic={})
+            self.observation = dict(self=[], static=[], dynamic={})
         else:
-            self.observation = dict(self=[],static=[])
+            self.observation = dict(self=[], static=[])
+
+
+def theta_0_to_2pi(theta):
+    while theta < 0.0:
+        theta += 2 * np.pi
+    while theta >= 2 * np.pi:
+        theta -= 2 * np.pi
+    return theta
+
 
 class Odometry:
-    def __int__(self):
-        self.sigma_g = 5/360 * np.pi #gyro noise
-        self.sigma_a = 0.05#accel noise
-        self.sigma_a_p = 0.05#accel noise percentage
+    def __init__(self):
+        max_g_error = 5 / 360 * np.pi  #max gyro error
+        max_a_error = 0.05  # max acceleration error
+        max_a_p_error = 0.05  # max acceleration error percentage
+        z_score = 1.96 # 95% confidence interval
 
-    def 
+        self.sigma_g = max_g_error / z_score
+        self.sigma_a = max_a_error / z_score  # accel noise
+        self.sigma_a_p = max_a_p_error / z_score  # accel noise percentage
+        self.x_old = None
+        self.y_old = None
+        self.theta_old = None
+
+    def reset(self, x0, y0, theta0):
+        self.x_old = x0
+        self.y_old = y0
+        self.theta_old = theta0
+
+    def add_noise(self, x_new, y_new, theta_new):
+        if self.x_old is None:
+            raise ValueError("Odometry is not initialized!")
+
+        dx = x_new - self.x_old
+        dy = y_new - self.y_old
+        dtheta = theta_new - self.theta_old
+
+        self.x_old = x_new
+        self.y_old = y_new
+        self.theta_old = theta_new
+
+        # max acceleration 5 cm / 5% of measurement
+        sigma_a_p = self.sigma_a_p * np.linalg.norm([dx, dy])
+        sigma_a = np.min([self.sigma_a, sigma_a_p])
+
+        w_a = np.random.normal(0, sigma_a)
+        w_g = np.random.normal(0, self.sigma_g)
+
+        dtheta_noisy = theta_0_to_2pi(dtheta + w_g)
+        dx_noisy = dx + w_a * np.cos(dtheta_noisy)
+        dy_noisy = dy + w_a * np.sin(dtheta_noisy)
+
+        return [dx_noisy, dy_noisy, dtheta_noisy]
 
 
 class Robot:
 
-    def __init__(self,cooperative:bool=False):
-        
-        # parameter initialization
-        self.cooperative = cooperative # if the robot is cooperative or not
-        self.dt = 0.2 # discretized time step (second)
-        self.N = 5 # number of time step per action
-        self.perception = Perception(cooperative)
-        self.length = 1.0 
-        self.width = 0.5
-        self.r = 0.8 # collision range
-        self.detect_r = 0.5*np.sqrt(self.length**2+self.width**2) # detection range
-        self.goal_dis = 2.0 # max distance to goal considered as reached   
-        self.max_speed = 2.0
-        self.a = np.array([-0.4,0.0,0.4]) # linear accelerations (m/s^2)
-        self.w = np.array([-np.pi/6,0.0,np.pi/6]) # angular velocities (rad/s)
-        self.compute_k() # cofficient of water resistance
-        self.compute_actions() # list of actions
+    def __init__(self, cooperative: bool = False):
 
-        self.x = None # x coordinate
-        self.y = None # y coordinate
-        self.theta = None # steering heading angle
-        self.speed = None # steering foward speed
-        self.velocity = None # velocity wrt sea floor
-        
-        self.start = None # start position
-        self.goal = None # goal position
+        # parameter initialization
+        self.cooperative = cooperative  # if the robot is cooperative or not
+        self.dt = 0.2  # discretized time step (second)
+        self.N = 5  # number of time step per action
+        self.perception = Perception(cooperative)
+        self.length = 1.0
+        self.width = 0.5
+        self.r = 0.8  # collision range
+        self.detect_r = 0.5 * np.sqrt(self.length ** 2 + self.width ** 2)  # detection range
+        self.goal_dis = 2.0  # max distance to goal considered as reached
+        self.max_speed = 2.0
+        self.a = np.array([-0.4, 0.0, 0.4])  # linear accelerations (m/s^2)
+        self.w = np.array([-np.pi / 6, 0.0, np.pi / 6])  # angular velocities (rad/s)
+        self.compute_k()  # cofficient of water resistance
+        self.compute_actions()  # list of actions
+
+        self.x = None  # x coordinate
+        self.y = None  # y coordinate
+        self.theta = None  # steering heading angle
+        self.speed = None  # steering foward speed
+        self.velocity = None  # velocity wrt sea floor
+
+        self.start = None  # start position
+        self.goal = None  # goal position
         self.reach_goal = False
 
-        self.init_theta = 0.0 # theta at initial position
-        self.init_speed = 0.0 # speed at initial position
+        self.init_theta = 0.0  # theta at initial position
+        self.init_speed = 0.0  # speed at initial position
 
-        self.action_history = [] # history of action commands in one episode
-        self.trajectory = [] # trajectory in one episode
+        self.action_history = []  # history of action commands in one episode
+        self.trajectory = []  # trajectory in one episode
 
+        self.odometry = Odometry()  # odometry
 
-    def get_odom(self):
-
+    # def get_odom(self):
 
     def compute_k(self):
-        self.k = np.max(self.a)/self.max_speed
-    
+        self.k = np.max(self.a) / self.max_speed
+
     def compute_actions(self):
-        self.actions = [(acc,ang_v) for acc in self.a for ang_v in self.w]
+        self.actions = [(acc, ang_v) for acc in self.a for ang_v in self.w]
 
     def compute_actions_dimension(self):
         return len(self.actions)
@@ -84,23 +128,23 @@ class Robot:
     def compute_dist_reward_scale(self):
         # scale the distance reward
         return 1 / (self.max_speed * self.N * self.dt)
-    
+
     def compute_penalty_matrix(self):
         # scale the penalty value to [-1,0]
-        scale_a = 1 / (np.max(self.a)*np.max(self.a))
-        scale_w = 1 / (np.max(self.w)*np.max(self.w))
-        p = -0.5 * np.matrix([[scale_a,0.0],[0.0,scale_w]])
+        scale_a = 1 / (np.max(self.a) * np.max(self.a))
+        scale_w = 1 / (np.max(self.w) * np.max(self.w))
+        p = -0.5 * np.matrix([[scale_a, 0.0], [0.0, scale_w]])
         return p
 
-    def compute_action_energy_cost(self,action):
+    def compute_action_energy_cost(self, action):
         # scale the a and w to [0,1]
-        a,w = self.actions[action]
+        a, w = self.actions[action]
         a /= np.max(self.a)
         w /= np.max(self.w)
         return np.abs(a) + np.abs(w)
-    
+
     def dist_to_goal(self):
-        return np.linalg.norm(self.goal - np.array([self.x,self.y]))
+        return np.linalg.norm(self.goal - np.array([self.x, self.y]))
 
     def check_reach_goal(self):
         if self.dist_to_goal() <= self.goal_dis:
@@ -110,21 +154,26 @@ class Robot:
         self.goal = np.array(goal_this)
         self.reach_goal = False
 
-    def reset_state(self,current_velocity=np.zeros(2)):
+    def reset_state(self, current_velocity=np.zeros(2)):
         # only called when resetting the environment
         self.action_history.clear()
         self.trajectory.clear()
         self.x = self.start[0]
         self.y = self.start[1]
-        self.theta = self.init_theta 
+        self.theta = self.init_theta
         self.speed = self.init_speed
         self.update_velocity(current_velocity)
-        self.trajectory.append([self.x,self.y,self.theta,self.speed,self.velocity[0],self.velocity[1]]) 
+        self.trajectory.append([self.x, self.y, self.theta, self.speed, self.velocity[0], self.velocity[1]])
+
+        self.odometry.reset(self.x, self.y, self.theta)
+
+    def get_odom(self):
+        return self.odometry.add_noise(self.x, self.y, self.theta)
 
     def get_robot_transform(self):
         # compute transformation from world frame to robot frame
-        R_wr = np.matrix([[np.cos(self.theta),-np.sin(self.theta)],[np.sin(self.theta),np.cos(self.theta)]])
-        t_wr = np.matrix([[self.x],[self.y]])
+        R_wr = np.matrix([[np.cos(self.theta), -np.sin(self.theta)], [np.sin(self.theta), np.cos(self.theta)]])
+        t_wr = np.matrix([[self.x], [self.y]])
         return R_wr, t_wr
 
     def get_steer_velocity(self, speed=None, theta=None):
@@ -135,28 +184,28 @@ class Robot:
             # Case when speed and theta are provided
             return speed * np.array([np.cos(theta), np.sin(theta)])
 
-    def update_velocity(self,current_velocity=np.zeros(2),velocity=None,theta=None):
+    def update_velocity(self, current_velocity=np.zeros(2), velocity=None, theta=None):
         if velocity is None and theta is None:
             steer_velocity = self.get_steer_velocity()
             self.velocity = steer_velocity + current_velocity
         else:
-            steer_velocity = self.get_steer_velocity(velocity,theta)
+            steer_velocity = self.get_steer_velocity(velocity, theta)
             return steer_velocity + current_velocity
 
-    def update_state(self,action,current_velocity):
+    def update_state(self, action, current_velocity):
         # update robot position in one time step
         self.update_velocity(current_velocity)
         dis = self.velocity * self.dt
         self.x += dis[0]
         self.y += dis[1]
-        
+
         # update robot speed in one time step
-        a,w = self.actions[action]
-        
+        a, w = self.actions[action]
+
         # assume that water resistance force is proportion to the speed
         # self.speed += (a-self.k*self.speed) * self.dt
         # self.speed = np.clip(self.speed,0.0,self.max_speed)
-        
+
         # update robot heading angle in one time step
         self.theta += w * self.dt
 
@@ -167,8 +216,8 @@ class Robot:
             self.theta -= 2 * np.pi
         # print(self.x, self.y, self.theta/np.pi * 180, self.velocity)
 
-    def check_collision(self,obj_x,obj_y,obj_r):
-        d = np.sqrt((self.x-obj_x)**2+(self.y-obj_y)**2)
+    def check_collision(self, obj_x, obj_y, obj_r):
+        d = np.sqrt((self.x - obj_x) ** 2 + (self.y - obj_y) ** 2)
         if d <= obj_r + self.r:
             return True
         else:
@@ -180,11 +229,11 @@ class Robot:
     #         np.abs(angle - 3*np.pi/2) < 1e-03:
     #         # vertical line
     #         M = obj_r*obj_r - (self.x-obj_x)*(self.x-obj_x)
-            
+
     #         if M < 0.0:
     #             # no real solution
     #             return None
-            
+
     #         x1 = self.x
     #         x2 = self.x
     #         y1 = obj_y - np.sqrt(M)
@@ -197,11 +246,11 @@ class Robot:
     #             (self.y-K*self.x-obj_y)*(self.y-K*self.x-obj_y) - \
     #             obj_r*obj_r
     #         delta = b*b - 4*a*c
-            
+
     #         if delta < 0.0:
     #             # no real solution
     #             return None
-            
+
     #         x1 = (-b-np.sqrt(delta))/(2*a)
     #         x2 = (-b+np.sqrt(delta))/(2*a)
     #         y1 = self.y+K*(x1-self.x)
@@ -217,31 +266,31 @@ class Robot:
     #     if np.dot(v,np.array([np.cos(angle),np.sin(angle)])) < 0.0:
     #         # the intersection point is in the opposite direction of the beam
     #         return None
-        
+
     #     return v
 
-    def check_detection(self,obj_x,obj_y,obj_r):
-        proj_pos = self.project_to_robot_frame(np.array([obj_x,obj_y]),False)
-        
+    def check_detection(self, obj_x, obj_y, obj_r):
+        proj_pos = self.project_to_robot_frame(np.array([obj_x, obj_y]), False)
+
         if np.linalg.norm(proj_pos) > self.perception.range + obj_r:
             return False
-        
-        angle = np.arctan2(proj_pos[1],proj_pos[0])
-        if angle < -0.5*self.perception.angle or angle > 0.5*self.perception.angle:
+
+        angle = np.arctan2(proj_pos[1], proj_pos[0])
+        if angle < -0.5 * self.perception.angle or angle > 0.5 * self.perception.angle:
             return False
-        
+
         return True
-    
-    def project_to_robot_frame(self,x,is_vector=True):
-        assert isinstance(x,np.ndarray), "the input needs to be an numpy array"
+
+    def project_to_robot_frame(self, x, is_vector=True):
+        assert isinstance(x, np.ndarray), "the input needs to be an numpy array"
         assert np.shape(x) == (2,)
 
-        x_r = np.reshape(x,(2,1))
+        x_r = np.reshape(x, (2, 1))
 
         R_wr, t_wr = self.get_robot_transform()
 
         R_rw = np.transpose(R_wr)
-        t_rw = -R_rw * t_wr 
+        t_rw = -R_rw * t_wr
 
         if is_vector:
             x_r = R_rw * x_r
@@ -249,14 +298,13 @@ class Robot:
             x_r = R_rw * x_r + t_rw
 
         x_r.resize((2,))
-        return np.array(x_r)            
+        return np.array(x_r)
 
-
-    def perception_output(self,obstacles,robots):
+    def perception_output(self, obstacles, robots):
         # TODO: remove LiDAR reflection computations and check dynamic obstacle observation error
         if self.reach_goal:
             return None, False, True
-        
+
         self.perception.observation["static"].clear()
 
         ##### self observation (velocity and goal in self frame) #####
@@ -264,10 +312,9 @@ class Robot:
         abs_velocity_r = self.project_to_robot_frame(self.velocity)
 
         # goal position in self frame
-        goal_r = self.project_to_robot_frame(self.goal,False)
+        goal_r = self.project_to_robot_frame(self.goal, False)
 
-        self.perception.observation["self"] = list(np.concatenate((goal_r,abs_velocity_r)))
-
+        self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r)))
 
         ##### observation of other objects #####
         self.perception.observed_obs.clear()
@@ -278,37 +325,37 @@ class Robot:
         self.check_reach_goal()
 
         # static obstacles observation 
-        for i,obs in enumerate(obstacles):
-            if not self.check_detection(obs.x,obs.y,obs.r):
+        for i, obs in enumerate(obstacles):
+            if not self.check_detection(obs.x, obs.y, obs.r):
                 continue
 
             self.perception.observed_obs.append(i)
 
             if not collision:
-                collision = self.check_collision(obs.x,obs.y,obs.r)
+                collision = self.check_collision(obs.x, obs.y, obs.r)
 
-            pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
-            self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
+            pos_r = self.project_to_robot_frame(np.array([obs.x, obs.y]), False)
+            self.perception.observation["static"].append([pos_r[0], pos_r[1], obs.r])
 
         if self.cooperative:
             # dynamic objects observation
-            for j,robot in enumerate(robots):
+            for j, robot in enumerate(robots):
                 if robot is self:
                     continue
                 if robot.reach_goal:
                     # This robot is in the deactivate state, and abscent from the current map
                     continue
-                if not self.check_detection(robot.x,robot.y,robot.detect_r):
+                if not self.check_detection(robot.x, robot.y, robot.detect_r):
                     continue
 
                 self.perception.observed_objs.append(j)
-                
-                if not collision:
-                    collision = self.check_collision(robot.x,robot.y,robot.r)
 
-                pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
+                if not collision:
+                    collision = self.check_collision(robot.x, robot.y, robot.r)
+
+                pos_r = self.project_to_robot_frame(np.array([robot.x, robot.y]), False)
                 v_r = self.project_to_robot_frame(robot.velocity)
-                new_obs = list(np.concatenate((pos_r,v_r)))
+                new_obs = list(np.concatenate((pos_r, v_r)))
                 if j in self.perception.observation["dynamic"].copy().keys():
                     self.perception.observation["dynamic"][j].append(new_obs)
                     while len(self.perception.observation["dynamic"][j]) > self.perception.len_obs_history:
@@ -333,11 +380,11 @@ class Robot:
         #         y = self.y + d * self.perception.range * np.sin(angle)
 
         #     self.perception.reflections.append([x,y,0,-1])
-            
+
         #     # compute the beam reflection from static obstcales 
         #     reflection_dist = np.infty  
         #     for i,obs in enumerate(obstacles):
-                
+
         #         p = self.compute_intersection(angle,obs.x,obs.y,obs.r)
 
         #         if p is None:
@@ -347,7 +394,7 @@ class Robot:
         #             # check if the current intersection point is closer
         #             if np.linalg.norm(p) >= reflection_dist: 
         #                 continue
-                
+
         #         reflection_dist = np.linalg.norm(p)
         #         self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,1,i]
 
@@ -368,7 +415,7 @@ class Robot:
         #             # check if the current intersection point is closer
         #             if np.linalg.norm(p) >= reflection_dist: 
         #                 continue
-            
+
         #         reflection_dist = np.linalg.norm(p)
         #         self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,2,j]
 
@@ -386,14 +433,14 @@ class Robot:
 
         #             pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
         #             self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
-                    
+
         #     elif tp == 2 and self.cooperative:
         #         if idx not in self.perception.observed_objs:
         #             # In a cooperative agent, also include dynamic object observation
         #             self.perception.observed_objs.append(idx)
         #             robot = robots[idx]
         #             assert robot.reach_goal is False, "robots that reach goal must be removed!"
-                    
+
         #             if not collision:
         #                 collision = self.check_collision(robot.x,robot.y,obs.r)
 
@@ -419,28 +466,12 @@ class Robot:
             # remove object indices 
             dynamic_states = copy.deepcopy(list(self.perception.observation["dynamic"].values()))
             idx_array = []
-            for idx,obs_history in enumerate(dynamic_states):
+            for idx, obs_history in enumerate(dynamic_states):
                 # pad the dynamic observation and save the indices of exact lastest element
-                idx_array.append([idx,len(obs_history)-1])
+                idx_array.append([idx, len(obs_history) - 1])
                 while len(obs_history) < self.perception.len_obs_history:
-                    obs_history.append([0.,0.,0.,0.])
-            obs = (self_state,static_states,dynamic_states,idx_array)
+                    obs_history.append([0., 0., 0., 0.])
+            obs = (self_state, static_states, dynamic_states, idx_array)
             return obs, collision, self.reach_goal
         else:
-            return (self_state,static_states), collision, self.reach_goal
-
-
-
-            
-
-
-
-
-            
-
-            
-
-                     
-
-
-
+            return (self_state, static_states), collision, self.reach_goal
