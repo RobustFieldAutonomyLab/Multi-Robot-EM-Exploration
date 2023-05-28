@@ -5,9 +5,9 @@ class APF_agent:
 
     def __init__(self, a, w):
         self.k_att = 50.0 # attractive force constant
-        self.k_rep = 500.0 # repulsive force constant
+        self.k_rep = 100.0 # repulsive force constant
         self.m = 500 # robot weight (kg)
-        self.d0 = 10.0 # obstacle distance threshold (m)
+        self.d0 = 15.0 # obstacle distance threshold (m)
         self.n = 2 # power constant of repulsive force
         self.min_vel = 1.0 # if velocity is lower than the threshold, mandate acceleration 
 
@@ -15,9 +15,11 @@ class APF_agent:
         self.w = w # available angular velocity (action 2)
 
     def act(self, observation):
-        velocity = observation[:2]
-        goal = observation[2:4]
-        sonar_points = observation[4:]
+        self_state,static_states,dynamic_states,idx_array = observation
+        # print(self_state,static_states,dynamic_states,idx_array)
+        velocity = np.array(self_state[2:])
+        goal = np.array(self_state[:2])
+        # sonar_points = observation[4:]
 
         # compute attractive force
         F_att = self.k_att * goal
@@ -25,18 +27,20 @@ class APF_agent:
         # compute total repulsive force from sonar reflections
         F_rep = np.zeros(2)
         d_goal = np.linalg.norm(goal)
-        for i in range(0,len(sonar_points),2):
-            x = sonar_points[i]
-            y = sonar_points[i+1]
-
-            if x == 0 and y == 0:
-                continue
-        
-            d_obs = np.linalg.norm(sonar_points[i:i+2])
+        # for i in range(0,len(sonar_points),2):
+        #     x = sonar_points[i]
+        #     y = sonar_points[i+1]
+            # if x == 0 and y == 0:
+            #     continue
+        for obs in static_states:
+            obs = np.array(obs)
+            d_obs = np.linalg.norm(obs[:2])
+            # d_obs = np.linalg.norm(sonar_points[i:i+2])
 
             # repulsive force component to move away from the obstacle 
             mag_1 = self.k_rep * ((1/d_obs)-(1/self.d0)) * (d_goal ** self.n)/(d_obs ** 2)
-            dir_1 = -1.0 * sonar_points[i:i+2] / d_obs
+            # dir_1 = -1.0 * sonar_points[i:i+2] / d_obs
+            dir_1 = -1.0 * obs[:2] / d_obs
             F_rep_1 = mag_1 * dir_1
 
             # repulsive force component to move towards the goal

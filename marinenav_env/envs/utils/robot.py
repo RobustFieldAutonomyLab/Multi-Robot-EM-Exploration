@@ -1,13 +1,15 @@
 import numpy as np
 import copy
 
+
+
 class Perception:
 
     def __init__(self,cooperative:bool=False):
         # 2D LiDAR model with detection area as a sector
         self.range = 15.0 # range of beams (meter)
         self.angle = 2 * np.pi # detection angle range
-        self.len_obs_history = 5 # the window size of observation history
+        self.len_obs_history = 1 # the window size of observation history
         self.observation_format(cooperative)
         self.observed_obs = [] # indices of observed static obstacles
         self.observed_objs = [] # indiced of observed dynamic objects
@@ -15,11 +17,19 @@ class Perception:
     def observation_format(self,cooperative:bool=False):
         # format: {"self": [velocity,goal], 
         #          "static":[[obs_1.x,obs_1.y,obs_1.r],...,[obs_n.x,obs_n.y,obs_n.r]],
-        #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}}
+        #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}
         if cooperative:
             self.observation = dict(self=[],static=[],dynamic={})
         else:
             self.observation = dict(self=[],static=[])
+
+class Odometry:
+    def __int__(self):
+        self.sigma_g = 5/360 * np.pi #gyro noise
+        self.sigma_a = 0.05#accel noise
+        self.sigma_a_p = 0.05#accel noise percentage
+
+    def 
 
 
 class Robot:
@@ -28,8 +38,8 @@ class Robot:
         
         # parameter initialization
         self.cooperative = cooperative # if the robot is cooperative or not
-        self.dt = 0.05 # discretized time step (second)
-        self.N = 10 # number of time step per action
+        self.dt = 0.2 # discretized time step (second)
+        self.N = 5 # number of time step per action
         self.perception = Perception(cooperative)
         self.length = 1.0 
         self.width = 0.5
@@ -57,6 +67,10 @@ class Robot:
 
         self.action_history = [] # history of action commands in one episode
         self.trajectory = [] # trajectory in one episode
+
+
+    def get_odom(self):
+
 
     def compute_k(self):
         self.k = np.max(self.a)/self.max_speed
@@ -92,6 +106,10 @@ class Robot:
         if self.dist_to_goal() <= self.goal_dis:
             self.reach_goal = True
 
+    def reset_goal(self, goal_this):
+        self.goal = np.array(goal_this)
+        self.reach_goal = False
+
     def reset_state(self,current_velocity=np.zeros(2)):
         # only called when resetting the environment
         self.action_history.clear()
@@ -109,12 +127,21 @@ class Robot:
         t_wr = np.matrix([[self.x],[self.y]])
         return R_wr, t_wr
 
-    def get_steer_velocity(self):
-        return self.speed * np.array([np.cos(self.theta), np.sin(self.theta)])
+    def get_steer_velocity(self, speed=None, theta=None):
+        if speed is None and theta is None:
+            # Case when no parameters are provided
+            return self.speed * np.array([np.cos(self.theta), np.sin(self.theta)])
+        else:
+            # Case when speed and theta are provided
+            return speed * np.array([np.cos(theta), np.sin(theta)])
 
-    def update_velocity(self,current_velocity=np.zeros(2)):
-        steer_velocity = self.get_steer_velocity()
-        self.velocity = steer_velocity + current_velocity
+    def update_velocity(self,current_velocity=np.zeros(2),velocity=None,theta=None):
+        if velocity is None and theta is None:
+            steer_velocity = self.get_steer_velocity()
+            self.velocity = steer_velocity + current_velocity
+        else:
+            steer_velocity = self.get_steer_velocity(velocity,theta)
+            return steer_velocity + current_velocity
 
     def update_state(self,action,current_velocity):
         # update robot position in one time step
@@ -127,8 +154,8 @@ class Robot:
         a,w = self.actions[action]
         
         # assume that water resistance force is proportion to the speed
-        self.speed += (a-self.k*self.speed) * self.dt
-        self.speed = np.clip(self.speed,0.0,self.max_speed)
+        # self.speed += (a-self.k*self.speed) * self.dt
+        # self.speed = np.clip(self.speed,0.0,self.max_speed)
         
         # update robot heading angle in one time step
         self.theta += w * self.dt
@@ -138,6 +165,7 @@ class Robot:
             self.theta += 2 * np.pi
         while self.theta >= 2 * np.pi:
             self.theta -= 2 * np.pi
+        # print(self.x, self.y, self.theta/np.pi * 180, self.velocity)
 
     def check_collision(self,obj_x,obj_y,obj_r):
         d = np.sqrt((self.x-obj_x)**2+(self.y-obj_y)**2)
@@ -396,7 +424,8 @@ class Robot:
                 idx_array.append([idx,len(obs_history)-1])
                 while len(obs_history) < self.perception.len_obs_history:
                     obs_history.append([0.,0.,0.,0.])
-            return (self_state,static_states,dynamic_states,idx_array), collision, self.reach_goal
+            obs = (self_state,static_states,dynamic_states,idx_array)
+            return obs, collision, self.reach_goal
         else:
             return (self_state,static_states), collision, self.reach_goal
 

@@ -8,7 +8,7 @@ from thirdparty import IQNAgent
 import APF
 import BA
 import os
-import gym
+# import gym
 import marinenav_env.envs.marinenav_env as marinenav_env
 import numpy as np
 import copy

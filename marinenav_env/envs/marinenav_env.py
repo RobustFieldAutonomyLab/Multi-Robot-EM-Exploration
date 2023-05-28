@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.spatial
 import marinenav_env.envs.utils.robot as robot
-import gym
+# import gym
 import json
 import copy
 
@@ -22,31 +22,39 @@ class Obstacle:
         self.y = y # y coordinate of the obstacle center
         self.r = r # radius of the obstacle    
 
-class MarineNavEnv2(gym.Env):
-
+# class MarineNavEnv2(gym.Env):
+class MarineNavEnv2():
     def __init__(self, seed:int=0, schedule:dict=None):
 
         self.sd = seed
         self.rd = np.random.RandomState(seed) # PRNG 
+
+        # Define action space and observation space for gym
+        # self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
         
         # parameter initialization
-        self.width = 50 # x coordinate dimension of the map
-        self.height = 50 # y coordinate dimension of the map
+        self.width = 200 # x coordinate dimension of the map
+        self.height = 200 # y coordinate dimension of the map
         self.r = 0.5  # radius of vortex core
         self.v_rel_max = 1.0 # max allowable speed when two currents flowing towards each other
         self.p = 0.8 # max allowable relative speed at another vortex core
         self.v_range = [5,10] # speed range of the vortex (at the edge of core)
-        self.obs_r_range = [1,3] # radius range of the obstacle
+        self.obs_r_range = [1,1] # radius range of the obstacle
         self.clear_r = 5.0 # radius of area centered at the start(goal) of each robot,
                            # where no vortex cores, static obstacles, or the start(goal) of other robots exist
+        self.reset_start_and_goal = True # if the start and goal position be set randomly in reset()
+        self.start = np.array([5.0,5.0]) # robot start position
+        self.goal = np.array([45.0,45.0]) # goal position
+        self.goal_dis = 2.0 # max distance to goal considered as reached
         self.timestep_penalty = -1.0
         self.collision_penalty = -50.0
         self.goal_reward = 100.0
-        self.num_cores = 8 # number of vortices
-        self.num_obs = 8 # number of static obstacles
-        self.min_start_goal_dis = 30.0 # minimum distance between start and goal
+        self.discount = 0.99
+        self.num_cores = 0 # number of vortices
+        self.num_obs = 28 # number of static obstacles
+        self.min_start_goal_dis = 30.0
         self.num_cooperative = 3 # number of cooperative robots
-        self.num_non_cooperative = 3 # number of non-cooperative robots
+        self.num_non_cooperative = 0 # number of non-cooperative robots
 
         self.robots = [] # list of robots
         for _ in range(self.num_cooperative):
@@ -76,19 +84,15 @@ class MarineNavEnv2(gym.Env):
             # find the interval the current timestep falls into
             idx = len(diffs[diffs<=0])-1
 
-            self.num_cooperative = self.schedule["num_cooperative"][idx]
-            self.num_non_cooperative = self.schedule["num_non_cooperative"][idx]
             self.num_cores = self.schedule["num_cores"][idx]
             self.num_obs = self.schedule["num_obstacles"][idx]
             self.min_start_goal_dis = self.schedule["min_start_goal_dis"][idx]
 
-            print("\n======== training schedule ========")
-            print("num of cooperative agents: ",self.num_cooperative)
-            print("num of non-cooperative agents: ",self.num_non_cooperative)
+            print("======== training env setup ========")
             print("num of cores: ",self.num_cores)
             print("num of obstacles: ",self.num_obs)
             print("min start goal dis: ",self.min_start_goal_dis)
-            print("======== training schedule ========\n") 
+            print("======== training env setup ========\n") 
         
         self.episode_timesteps = 0
 
@@ -104,9 +108,12 @@ class MarineNavEnv2(gym.Env):
         ##### generate robots with randomly generated start and goal 
         num_robots = 0
         iteration = 500
+        start_center = self.rd.uniform(low = 7.0*np.ones(2), high = np.array([self.width-7.0,self.height-7.0]))
+        goal_center = self.rd.uniform(low = 7.0*np.ones(2), high = np.array([self.width-7.0,self.height-7.0]))
+
         while True:
-            start = self.rd.uniform(low = 2.0*np.ones(2), high = np.array([self.width-2.0,self.height-2.0]))
-            goal = self.rd.uniform(low = 2.0*np.ones(2), high = np.array([self.width-2.0,self.height-2.0]))
+            start = self.rd.uniform(low = start_center - np.array([7.0, 7.0]), high = start_center + np.array([7.0, 7.0]))
+            goal  = self.rd.uniform(low = goal_center - np.array([7.0, 7.0]), high = goal_center + np.array([7.0, 7.0]))
             iteration -= 1
             if self.check_start_and_goal(start,goal):
                 rob = robot.Robot(robot_types[num_robots])
@@ -160,38 +167,30 @@ class MarineNavEnv2(gym.Env):
                 if iteration == 0 or num_obs == 0:
                     break
         
-        return self.get_observations()
+        # TODO: check get_observations
+        # return self.get_observations()
 
     def reset_robot(self,rob):
         # reset robot state
-        rob.reach_goal = False
         rob.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
         rob.init_speed = self.rd.uniform(low = 0.0, high = rob.max_speed)
         current_v = self.get_velocity(rob.start[0],rob.start[1])
         rob.reset_state(current_velocity=current_v)
 
-    def check_all_reach_goal(self):
-        res = True
-        for rob in self.robots:
-            if not rob.reach_goal:
-                res = False
-                break
-        return res
+    def reset_goal(self, goal_list):
+        for i, robot in enumerate(self.robots):
+            robot.reset_goal(goal_list[i])
 
     def step(self, actions):
+        # TODO: rewrite step function to update state of all robots, generate corresponding observations and rewards
+        # execute action, update the environment, and return (obs, reward, done)
 
         rewards = [0]*len(self.robots)
 
         assert len(actions) == len(self.robots), "Number of actions not equal number of robots!"
-        assert self.check_all_reach_goal() is not True, "All robots reach goals, not actions are available!"
         # Execute actions for all robots
         for i,action in enumerate(actions):
             rob = self.robots[i]
-
-            if rob.reach_goal:
-                # This robot is in the deactivate state
-                continue
-
             # save action to history
             rob.action_history.append(action)
 
@@ -201,9 +200,8 @@ class MarineNavEnv2(gym.Env):
             for _ in range(rob.N):
                 current_velocity = self.get_velocity(rob.x, rob.y)
                 rob.update_state(action,current_velocity)
-            
-            # save robot state
-            rob.trajectory.append([rob.x,rob.y,rob.theta,rob.speed,rob.velocity[0],rob.velocity[1]])
+                # save trajectory
+                rob.trajectory.append([rob.x,rob.y])
 
             dis_after = rob.dist_to_goal()
 
@@ -215,52 +213,39 @@ class MarineNavEnv2(gym.Env):
         
 
         # Get observation for all robots
-        observations, collisions, reach_goals = self.get_observations()
+        observations = self.get_observations()
 
-        dones = [False]*len(self.robots)
+        dones = [True]*len(self.robots)
         infos = [{"state":"normal"}]*len(self.robots)
 
-        # (1) end the current episode if it's too long
-        # (2) if any collision happens, end the current episode
-        # (3) if all robots reach goals (robot list is empty), end the current episode
-        
-        end_episode = False
-        for idx,rob in enumerate(self.robots):
-            if rob.reach_goal:
-                # This robot is in the deactivate state
-                dones[idx] = True
-                infos[idx] = {"state":"reach goal"}
-                continue
-            
-            if self.episode_timesteps >= 1000:
-                end_episode = True
-                dones[idx] = True
-                infos[idx] = {"state":"too long episode"}
-            elif collisions[idx]:
-                rewards[idx] += self.collision_penalty
-                end_episode = True
-                dones[idx] = True
-                infos[idx] = {"state":"collision"}
-            elif reach_goals[idx]:
-                rewards[idx] += self.goal_reward
-                dones[idx] = True
-                infos[idx] = {"state":"reach goal"}
-            else:
-                dones[idx] = False
-                infos[idx] = {"state":"normal"}
-        
-        if self.check_all_reach_goal():
-            end_episode = True
-
+        # TODO: rewrite the reward and function: 
+        # (1) if any collision happens, end the current episode
+        # (2) if all robots reach goals, end the current episode
+        # (3) when a robot reach the goal and the episode does not end, 
+        #     remove it from the map  
         # if self.set_boundary and self.out_of_boundary():
         #     # No used in training 
         #     done = True
         #     info = {"state":"out of boundary"}
+        # elif self.episode_timesteps >= 1000:
+        #     done = True
+        #     info = {"state":"too long episode"}
+        # elif self.check_collision():
+        #     reward += self.collision_penalty
+        #     done = True
+        #     info = {"state":"collision"}
+        # elif self.check_reach_goal():
+        #     reward += self.goal_reward
+        #     done = True
+        #     info = {"state":"reach goal"}
+        # else:
+        #     done = False
+        #     info = {"state":"normal"}
 
         self.episode_timesteps += 1
         self.total_timesteps += 1
 
-        return observations, rewards, dones, infos, end_episode
+        return observations, rewards, dones, infos
 
     def out_of_boundary(self):
         # only used when boundary is set
@@ -270,14 +255,25 @@ class MarineNavEnv2(gym.Env):
 
     def get_observations(self):
         observations = []
-        collisions = []
-        reach_goals = []
         for robot in self.robots:
-            observation, collision, reach_goal = robot.perception_output(self.obstacles,self.robots)
-            observations.append(observation)
-            collisions.append(collision)
-            reach_goals.append(reach_goal)
-        return observations, collisions, reach_goals
+            observations.append(robot.perception_output(self.obstacles,self.robots))
+        return observations
+
+    def check_collision(self):
+        if len(self.obstacles) == 0:
+            return False
+        
+        for obs in self.obstacles:
+            d = np.sqrt((self.robot.x-obs.x)**2+(self.robot.y-obs.y)**2)
+            if d <= obs.r + self.robot.r:
+                return True
+        return False
+
+    def check_reach_goal(self):
+        dis = np.array([self.robot.x,self.robot.y]) - self.goal
+        if np.linalg.norm(dis) <= self.goal_dis:
+            return True
+        return False
     
     def check_start_and_goal(self,start,goal):
         
@@ -437,9 +433,13 @@ class MarineNavEnv2(gym.Env):
         self.v_range = copy.deepcopy(eval_config["env"]["v_range"])
         self.obs_r_range = copy.deepcopy(eval_config["env"]["obs_r_range"])
         self.clear_r = eval_config["env"]["clear_r"]
+        self.start = np.array(eval_config["env"]["start"])
+        self.goal = np.array(eval_config["env"]["goal"])
+        self.goal_dis = eval_config["env"]["goal_dis"]
         self.timestep_penalty = eval_config["env"]["timestep_penalty"]
         self.collision_penalty = eval_config["env"]["collision_penalty"]
         self.goal_reward = eval_config["env"]["goal_reward"]
+        self.discount = eval_config["env"]["discount"]
 
         # load vortex cores
         self.cores.clear()
@@ -467,38 +467,38 @@ class MarineNavEnv2(gym.Env):
             obs = Obstacle(center[0],center[1],r)
             self.obstacles.append(obs)
 
+
         # load robot config
-        self.robots.clear()
-        for i in range(len(eval_config["robots"]["cooperative"])):
-            rob = robot.Robot(eval_config["robots"]["cooperative"][i])
-            rob.dt = eval_config["robots"]["dt"][i]
-            rob.N = eval_config["robots"]["N"][i]
-            rob.length = eval_config["robots"]["length"][i]
-            rob.width = eval_config["robots"]["width"][i]
-            rob.r = eval_config["robots"]["r"][i]
-            rob.detect_r = eval_config["robots"]["detect_r"][i]
-            rob.goal_dis = eval_config["robots"]["goal_dis"][i]
-            rob.max_speed = eval_config["robots"]["max_speed"][i]
-            rob.a = np.array(eval_config["robots"]["a"][i])
-            rob.w = np.array(eval_config["robots"]["w"][i])
-            rob.start = np.array(eval_config["robots"]["start"][i])
-            rob.goal = np.array(eval_config["robots"]["goal"][i])
-            rob.compute_k()
-            rob.compute_actions()
-            rob.init_theta = eval_config["robots"]["init_theta"][i]
-            rob.init_speed = eval_config["robots"]["init_speed"][i]
-            
-            rob.perception.range = eval_config["robots"]["perception"]["range"][i]
-            rob.perception.angle = eval_config["robots"]["perception"]["angle"][i]
-            # rob.perception.num_beams = eval_config["robots"]["perception"]["num_beams"][i]
-            rob.perception.len_obs_history = eval_config["robots"]["perception"]["len_obs_history"][i]
+        self.robot.dt = eval_config["robot"]["dt"]
+        self.robot.N = eval_config["robot"]["N"]
+        self.robot.length = eval_config["robot"]["length"]
+        self.robot.width = eval_config["robot"]["width"]
+        self.robot.r = eval_config["robot"]["r"]
+        self.robot.max_speed = eval_config["robot"]["max_speed"]
+        self.robot.a = np.array(eval_config["robot"]["a"])
+        self.robot.w = np.array(eval_config["robot"]["w"])
+        self.robot.compute_k()
+        self.robot.compute_actions()
 
-            current_v = self.get_velocity(rob.start[0],rob.start[1])
-            rob.reset_state(current_velocity=current_v)
-            
-            self.robots.append(rob)
+        # load perception config
+        self.robot.perception.range = eval_config["robot"]["perception"]["range"]
+        self.robot.perception.angle = eval_config["robot"]["perception"]["angle"]
+        self.robot.perception.num_beams = eval_config["robot"]["perception"]["num_beams"]
+        self.robot.perception.compute_phi()
+        self.robot.perception.compute_beam_angles()
 
-        return self.get_observations()          
+        # update env action and observation space
+        # self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
+        obs_len = 2 + 2 + 2 * self.robot.perception.num_beams
+        # self.observation_space = gym.spaces.Box(low = -np.inf * np.ones(obs_len), \
+        #                                             high = np.inf * np.ones(obs_len), \
+        #                                             dtype = np.float32)
+
+        # reset robot state
+        current_v = self.get_velocity(self.start[0],self.start[1])
+        self.robot.reset_state(self.start[0],self.start[1], current_velocity=current_v)
+
+        return self.get_observation()          
 
     def episode_data(self):
         episode = {}
@@ -514,9 +514,15 @@ class MarineNavEnv2(gym.Env):
         episode["env"]["v_range"] = copy.deepcopy(self.v_range) 
         episode["env"]["obs_r_range"] = copy.deepcopy(self.obs_r_range)
         episode["env"]["clear_r"] = self.clear_r
+        episode["env"]["start"] = list(self.start)
+        episode["env"]["goal"] = list(self.goal)
+        episode["env"]["goal_dis"] = self.goal_dis
         episode["env"]["timestep_penalty"] = self.timestep_penalty
+        # episode["env"]["energy_penalty"] = self.energy_penalty.tolist()
+        # episode["env"]["angle_penalty"] = self.angle_penalty
         episode["env"]["collision_penalty"] = self.collision_penalty
         episode["env"]["goal_reward"] = self.goal_reward
+        episode["env"]["discount"] = self.discount
 
         # save vortex cores information
         episode["env"]["cores"] = {}
@@ -536,57 +542,26 @@ class MarineNavEnv2(gym.Env):
             episode["env"]["obstacles"]["positions"].append([obs.x,obs.y])
             episode["env"]["obstacles"]["r"].append(obs.r)
 
-        # save robots information
-        episode["robots"] = {}
-        episode["robots"]["cooperative"] = []
-        episode["robots"]["dt"] = []
-        episode["robots"]["N"] = []
-        episode["robots"]["length"] = []
-        episode["robots"]["width"] = []
-        episode["robots"]["r"] = []
-        episode["robots"]["detect_r"] = []
-        episode["robots"]["goal_dis"] = []
-        episode["robots"]["max_speed"] = []
-        episode["robots"]["a"] = []
-        episode["robots"]["w"] = []
-        episode["robots"]["start"] = []
-        episode["robots"]["goal"] = []
-        episode["robots"]["init_theta"] = []
-        episode["robots"]["init_speed"] = []
+        # save robot config
+        episode["robot"] = {}
+        episode["robot"]["dt"] = self.robot.dt
+        episode["robot"]["N"] = self.robot.N
+        episode["robot"]["length"] = self.robot.length
+        episode["robot"]["width"] = self.robot.width
+        episode["robot"]["r"] = self.robot.r
+        episode["robot"]["max_speed"] = self.robot.max_speed
+        episode["robot"]["a"] = list(self.robot.a)
+        episode["robot"]["w"] = list(self.robot.w)
 
-        episode["robots"]["perception"] = {}
-        episode["robots"]["perception"]["range"] = []
-        episode["robots"]["perception"]["angle"] = []
-        # episode["robots"]["perception"]["num_beams"] = []
-        episode["robots"]["perception"]["len_obs_history"] = []
+        # save perception config
+        episode["robot"]["perception"] = {}
+        episode["robot"]["perception"]["range"] = self.robot.perception.range
+        episode["robot"]["perception"]["angle"] = self.robot.perception.angle
+        episode["robot"]["perception"]["num_beams"] = self.robot.perception.num_beams
 
-        episode["robots"]["action_history"] = []
-        episode["robots"]["trajectory"] = []
-
-        for rob in self.robots:
-            episode["robots"]["cooperative"].append(rob.cooperative)
-            episode["robots"]["dt"].append(rob.dt)
-            episode["robots"]["N"].append(rob.N)
-            episode["robots"]["length"].append(rob.length)
-            episode["robots"]["width"].append(rob.width)
-            episode["robots"]["r"].append(rob.r)
-            episode["robots"]["detect_r"].append(rob.detect_r)
-            episode["robots"]["goal_dis"].append(rob.goal_dis)
-            episode["robots"]["max_speed"].append(rob.max_speed)
-            episode["robots"]["a"].append(list(rob.a))
-            episode["robots"]["w"].append(list(rob.w))
-            episode["robots"]["start"].append(list(rob.start))
-            episode["robots"]["goal"].append(list(rob.goal))
-            episode["robots"]["init_theta"].append(rob.init_theta)
-            episode["robots"]["init_speed"].append(rob.init_speed)
-
-            episode["robots"]["perception"]["range"].append(rob.perception.range)
-            episode["robots"]["perception"]["angle"].append(rob.perception.angle)
-            # episode["robots"]["perception"]["num_beams"].append(rob.perception.num_beams)
-            episode["robots"]["perception"]["len_obs_history"].append(rob.perception.len_obs_history)
-
-            episode["robots"]["action_history"].append(copy.deepcopy(rob.action_history))
-            episode["robots"]["trajectory"].append(copy.deepcopy(rob.trajectory))
+        # save action history
+        episode["robot"]["action_history"] = copy.deepcopy(self.robot.action_history)
+        episode["robot"]["trajectory"] = copy.deepcopy(self.robot.trajectory)
 
         return episode
 
