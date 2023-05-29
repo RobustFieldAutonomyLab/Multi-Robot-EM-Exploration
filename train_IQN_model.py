@@ -93,32 +93,32 @@ def run_trial(device,params):
     with open(schedule_file, 'w+') as outfile:
         json.dump(training_schedule, outfile)
 
-    train_env = gym.make('marinenav_env:marinenav_env-v0',seed=params["seed"],schedule=training_schedule)
+    # train_env = gym.make('marinenav_env:marinenav_env-v0',seed=params["seed"],schedule=training_schedule)
     
     # evaluation environment configs
     eval_config = {}
-    eval_env = gym.make('marinenav_env:marinenav_env-v0',seed=348)
+    # eval_env = gym.make('marinenav_env:marinenav_env-v0',seed=348)
     print("Creating 30 evaluation environments\n")
-    eval_config = create_eval_configs(eval_env)
+    # eval_config = create_eval_configs(eval_env)
 
     eval_config_file = os.path.join(exp_dir,"eval_config.json")
     with open(eval_config_file, "w+") as f:
         json.dump(eval_config, f)
 
-    model = IQNAgent(train_env.get_state_space_dimension(),
-                     train_env.get_action_space_dimension(),
-                     device=device,
-                     seed=params["seed"]+100)
+    # model = IQNAgent(train_env.get_state_space_dimension(),
+                    #  train_env.get_action_space_dimension(),
+                    #  device=device,
+                    #  seed=params["seed"]+100)
 
-    model.learn(total_timesteps=params["total_timesteps"],
-                train_env=train_env,
-                eval_env=eval_env,
-                eval_config=eval_config,
-                eval_freq=params["eval_freq"],
-                eval_log_path=exp_dir)
+    # model.learn(total_timesteps=params["total_timesteps"],
+    #             train_env=train_env,
+    #             eval_env=eval_env,
+    #             eval_config=eval_config,
+    #             eval_freq=params["eval_freq"],
+    #             eval_log_path=exp_dir)
 
-    train_env.close()
-    eval_env.close()
+    # train_env.close()
+    # eval_env.close()
 
 def create_eval_configs(eval_env):
     eval_config = {}

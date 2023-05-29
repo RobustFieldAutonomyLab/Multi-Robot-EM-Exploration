@@ -6,7 +6,7 @@ from thirdparty import PPO
 from thirdparty import A2C
 from thirdparty import DQN
 from thirdparty import QRDQN
-import gym
+# import gym
 import os
 import argparse
 import itertools
@@ -97,13 +97,13 @@ def run_trial(device,params):
     with open(schedule_file, 'w+') as outfile:
         json.dump(training_schedule, outfile)
 
-    train_env = gym.make('marinenav_env:marinenav_env-v0',seed=params["seed"],schedule=training_schedule)
+    # train_env = gym.make('marinenav_env:marinenav_env-v0',seed=params["seed"],schedule=training_schedule)
     
     # evaluation environment configs
     eval_config = {}
-    evaluate_env = gym.make('marinenav_env:marinenav_env-v0',seed=348)
+    # evaluate_env = gym.make('marinenav_env:marinenav_env-v0',seed=348)
     print("Creating 30 evaluation environments\n")
-    eval_config = create_eval_configs(evaluate_env) 
+    # eval_config = create_eval_configs(evaluate_env) 
 
     model = DQN(policy='ObsEncoderPolicy',
                env=train_env,

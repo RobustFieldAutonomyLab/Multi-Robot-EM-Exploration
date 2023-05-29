@@ -14,8 +14,8 @@ class Perception:
         self.observed_objs = []  # indiced of observed dynamic objects
 
     def observation_format(self, cooperative: bool = False):
-        # format: {"self": [velocity,goal], 
-        #          "static":[[obs_1.x,obs_1.y,obs_1.r],...,[obs_n.x,obs_n.y,obs_n.r]],
+        # format: {"self": [velocity,goal, odom],
+        #          "static":[[obs_1.x,obs_1.y,obs_1.r, obs_1.id],...,[obs_n.x,obs_n.y,obs_n.r, obs_n.id]],
         #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}
         if cooperative:
             self.observation = dict(self=[], static=[], dynamic={})
@@ -314,7 +314,7 @@ class Robot:
         # goal position in self frame
         goal_r = self.project_to_robot_frame(self.goal, False)
 
-        self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r)))
+        self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r, np.array( self.get_odom() ))))
 
         ##### observation of other objects #####
         self.perception.observed_obs.clear()
@@ -335,7 +335,7 @@ class Robot:
                 collision = self.check_collision(obs.x, obs.y, obs.r)
 
             pos_r = self.project_to_robot_frame(np.array([obs.x, obs.y]), False)
-            self.perception.observation["static"].append([pos_r[0], pos_r[1], obs.r])
+            self.perception.observation["static"].append([pos_r[0], pos_r[1], obs.r, i])
 
         if self.cooperative:
             # dynamic objects observation
