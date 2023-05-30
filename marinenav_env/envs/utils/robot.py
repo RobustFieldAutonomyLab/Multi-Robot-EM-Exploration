@@ -32,7 +32,7 @@ def theta_0_to_2pi(theta):
 
 
 class Odometry:
-    def __init__(self):
+    def __init__(self, seed = 0):
         max_g_error = 5 / 360 * np.pi  #max gyro error
         max_a_error = 0.05  # max acceleration error
         max_a_p_error = 0.05  # max acceleration error percentage
@@ -44,6 +44,7 @@ class Odometry:
         self.x_old = None
         self.y_old = None
         self.theta_old = None
+        self.observation = [0,0,0]
 
     def reset(self, x0, y0, theta0):
         self.x_old = x0
@@ -73,8 +74,30 @@ class Odometry:
         dx_noisy = dx + w_a * np.cos(dtheta_noisy)
         dy_noisy = dy + w_a * np.sin(dtheta_noisy)
 
-        return [dx_noisy, dy_noisy, dtheta_noisy]
+        dtheta_noisy = theta_0_to_2pi(dtheta)
+        dx_noisy = dx
+        dy_noisy = dy
+        self.observation = [dx_noisy, dy_noisy, dtheta_noisy]
 
+    def get_odom(self):
+        return self.observation
+
+class RangeBearingMeasurement:
+    def __init__(self):
+        max_b_error = 0.5 / 360 * np.pi # max bearing error
+        max_r_error = 0.2 # max range error
+        z_score = 1.96 # 95% confidence interval
+
+        self.sigma_r = max_r_error / z_score
+        self.sigma_b = max_b_error / z_score
+
+    def add_noise(self, x_obs, y_obs):
+        r_noisy = np.linalg.norm([x_obs, y_obs]) + np.random.normal(0, self.sigma_r)
+        b_noisy = np.arctan2(y_obs, x_obs) + np.random.normal(0, self.sigma_b)
+
+        r_noisy = np.linalg.norm([x_obs, y_obs])
+        b_noisy = np.arctan2(y_obs, x_obs)
+        return [r_noisy, b_noisy]
 
 class Robot:
 
@@ -82,7 +105,7 @@ class Robot:
 
         # parameter initialization
         self.cooperative = cooperative  # if the robot is cooperative or not
-        self.dt = 0.2  # discretized time step (second)
+        self.dt = .2  # discretized time step (second)
         self.N = 5  # number of time step per action
         self.perception = Perception(cooperative)
         self.length = 1.0
@@ -113,8 +136,8 @@ class Robot:
         self.trajectory = []  # trajectory in one episode
 
         self.odometry = Odometry()  # odometry
-
-    # def get_odom(self):
+        # add noisy to landmark observation
+        self.landmark_observation = RangeBearingMeasurement()
 
     def compute_k(self):
         self.k = np.max(self.a) / self.max_speed
@@ -167,9 +190,6 @@ class Robot:
 
         self.odometry.reset(self.x, self.y, self.theta)
 
-    def get_odom(self):
-        return self.odometry.add_noise(self.x, self.y, self.theta)
-
     def get_robot_transform(self):
         # compute transformation from world frame to robot frame
         R_wr = np.matrix([[np.cos(self.theta), -np.sin(self.theta)], [np.sin(self.theta), np.cos(self.theta)]])
@@ -215,6 +235,8 @@ class Robot:
         while self.theta >= 2 * np.pi:
             self.theta -= 2 * np.pi
         # print(self.x, self.y, self.theta/np.pi * 180, self.velocity)
+
+        self.odometry.add_noise(self.x, self.y, self.theta)
 
     def check_collision(self, obj_x, obj_y, obj_r):
         d = np.sqrt((self.x - obj_x) ** 2 + (self.y - obj_y) ** 2)
@@ -314,7 +336,7 @@ class Robot:
         # goal position in self frame
         goal_r = self.project_to_robot_frame(self.goal, False)
 
-        self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r, np.array( self.get_odom() ))))
+        self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r, np.array(self.odometry.get_odom()))))
 
         ##### observation of other objects #####
         self.perception.observed_obs.clear()

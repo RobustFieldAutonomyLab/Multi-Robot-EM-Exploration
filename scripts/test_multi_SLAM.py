@@ -12,7 +12,7 @@ if 1:
     # ev.visualize_navigation()
 
     #Do a ten step navigate
-    n = 10
+    n = 1
     for i in range (0, n):
         goals = []
         speed = 20
@@ -26,5 +26,6 @@ if 1:
         ev.reset_goal(goals)
         ev.navigate_one_step()
     ev.draw_present_position()
+    ev.visualize_SLAM()
 
     ev.fig.savefig("test_multi_robot.png",bbox_inches="tight")

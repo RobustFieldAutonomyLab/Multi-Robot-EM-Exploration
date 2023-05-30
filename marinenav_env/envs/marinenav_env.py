@@ -51,7 +51,7 @@ class MarineNavEnv2():
         self.goal_reward = 100.0
         self.discount = 0.99
         self.num_cores = 0 # number of vortices
-        self.num_obs = 28 # number of static obstacles
+        self.num_obs = 0# 28 # number of static obstacles
         self.min_start_goal_dis = 30.0
         self.num_cooperative = 1 # number of cooperative robots
         self.num_non_cooperative = 0 # number of non-cooperative robots

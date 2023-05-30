@@ -5,9 +5,9 @@ class APF_agent:
 
     def __init__(self, a, w):
         self.k_att = 50.0 # attractive force constant
-        self.k_rep = 100.0 # repulsive force constant
+        self.k_rep = 50.0 # repulsive force constant
         self.m = 500 # robot weight (kg)
-        self.d0 = 15.0 # obstacle distance threshold (m)
+        self.d0 = 10.0 # obstacle distance threshold (m)
         self.n = 2 # power constant of repulsive force
         self.min_vel = 1.0 # if velocity is lower than the threshold, mandate acceleration 
 
@@ -17,7 +17,7 @@ class APF_agent:
     def act(self, observation):
         self_state,static_states,dynamic_states,idx_array = observation
         # print(self_state,static_states,dynamic_states,idx_array)
-        velocity = np.array(self_state[2:])
+        velocity = np.array(self_state[2:4])
         goal = np.array(self_state[:2])
         # sonar_points = observation[4:]
 

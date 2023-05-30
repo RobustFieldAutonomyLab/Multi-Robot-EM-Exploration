@@ -10,7 +10,7 @@ import scipy.spatial
 import json
 import os
 from APF import APF_agent
-
+from nav.navigation import LandmarkSLAM
 
 class EnvVisualizer:
 
@@ -60,6 +60,9 @@ class EnvVisualizer:
         self.APF_agents = None
 
         self.step = 0
+
+        self.landmark_slam = LandmarkSLAM(seed)
+        self.landmark_slam.reset_graph(len(self.env.robots))
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -603,19 +606,51 @@ class EnvVisualizer:
             #     if obs[1] == True:
             #         stop_signal = True
             #         break
-            if not stop_signal:
-                actions = []
-                for i, apf in enumerate(self.APF_agents):
-                    if self.env.robots[i].reach_goal:
-                        actions.append(-1)
-                        reached += 1
-                    else:
-                        actions.append(apf.act(observations[i][0]))
-                if (reached == self.env.num_cooperative):
-                    stop_signal = True
-                self.one_step(actions)
+            actions = []
+            for i, apf in enumerate(self.APF_agents):
+                if self.env.robots[i].reach_goal:
+                    actions.append(-1)
+                    reached += 1
+                else:
+                    actions.append(apf.act(observations[i][0]))
+            if (reached == self.env.num_cooperative):
+                stop_signal = True
+            self.one_step(actions)
+            obs_list = self.generate_SLAM_observations(observations)
+            self.landmark_slam.add_one_step(obs_list)
 
-        # update robot state and make animation when executing action sequence
+    # update robot state and make animation when executing action sequence
+    def generate_SLAM_observations(self, observations):
+        # SLAM obs_list
+        # obs: obs_odom, obs_landmark, obs_robot
+        # obs_odom: [dx, dy, dtheta]
+        # obs_landmark: [landmark0:range, bearing, id], [landmark1], ...]
+        # obs_robot: [obs0: range, bearing, id], [obs1], ...]
+
+        # env obs_list
+        # format: {"self": [velocity,goal, odom],
+        #          "static":[[obs_1.x,obs_1.y,obs_1.r, obs_1.id],...,[obs_n.x,obs_n.y,obs_n.r, obs_n.id]],
+        #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}
+        slam_obs_list = np.empty((len(observations),), dtype=object)
+        for i, obs in enumerate(observations):
+            if obs[2]:
+                continue
+            self_state, static_states, dynamic_states, idx_array = obs[0]
+            slam_obs_odom = copy.deepcopy(self_state[4:])
+            if len(static_states) != 0:
+                slam_obs_landmark = np.zeros([len(static_states), 3])
+                for j, static_state in enumerate(static_states):
+                    rb = self.env.robots[i].landmark_observation.add_noise(static_state[0],
+                                                                           static_state[1])
+                    slam_obs_landmark[j,0] = copy.deepcopy(rb[0])
+                    slam_obs_landmark[j,1] = copy.deepcopy(rb[1])
+                    slam_obs_landmark[j,2] = copy.deepcopy(static_state[3])
+            else:
+                slam_obs_landmark = []
+            # TODO: add dynamic obs
+            slam_obs_list[i] = [slam_obs_odom, slam_obs_landmark]
+        return slam_obs_list
+
 
     def visualize_navigation(self, start_idx=0):
         # counter for updating distributions plot
@@ -632,6 +667,9 @@ class EnvVisualizer:
 
             plt.show()
 
+    def visualize_SLAM(self, start_idx=0):
+        pose = self.landmark_slam.get_robot_trajectory(0, [self.env.robots[0].start[0], self.env.robots[0].start[1], self.env.robots[0].init_theta])
+        self.axis_graph.plot(pose[:,0],pose[:,1],color='tab:green')
     def load_env_config(self, episode_dict):
         episode = copy.deepcopy(episode_dict)
 
