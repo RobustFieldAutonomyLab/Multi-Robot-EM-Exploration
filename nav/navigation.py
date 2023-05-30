@@ -14,15 +14,13 @@ class LandmarkSLAM:
         # Noise models for the prior
         self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.001, 0.001, 0.001])
         # Noise models for the odometry
-        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.008])
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
         # Noise models for the range bearing measurements
         self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004])
+        # Noise models for the robot observations
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
 
         self.parameters = gtsam.LevenbergMarquardtParams()
-
-        self.frequency = 20
-        self.frequency_count = 0
-        self.odom = [0,0,0]
 
     def reset_graph(self, num_robot):
         self.graph.resize(0)
@@ -48,6 +46,9 @@ class LandmarkSLAM:
                                                   gtsam.Rot2(bearing), range,
                                                   self.range_bearing_noise_model))
 
+    def add_robot_observation(self, idx0: gtsam.symbol, idx1: gtsam.symbol, pose: gtsam.Pose2):
+        self.graph.add(gtsam.BetweenFactorPose2(idx0, idx1, pose, self.robot_noise_model))
+
     def add_initial_pose(self, idx: gtsam.symbol, pose: gtsam.Pose2):
         self.initial.insert(idx, pose)
 
@@ -62,6 +63,10 @@ class LandmarkSLAM:
 
     def get_robot_value_initial(self, robot_id, idx):
         return self.initial.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
+
+    def get_robot_value_result(self, robot_id, idx):
+        if self.result.exists(idx):
+            return self.result.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
 
     def get_landmark_value_initial(self, idl):
         return self.initial.atPoint2(idl)
@@ -92,28 +97,26 @@ class LandmarkSLAM:
         # obs: obs_odom, obs_landmark, obs_robot
         # obs_odom: [dx, dy, dtheta]
         # obs_landmark: [landmark0:range, bearing, id], [landmark1], ...]
-        # obs_robot: [obs0: range, bearing, id], [obs1], ...]
-        if not obs_list.all():
-            return
-
-        if self.frequency_count % self.frequency != 0:
-            self.frequency_count += 1
+        # obs_robot: [obs0: dx, dy, dtheta, id], [obs1], ...]
+        if np.all(np.equal(obs_list, None)):
             return
 
         for i, obs in enumerate(obs_list):
             if not obs:
                 continue
-            obs_odom, obs_landmark = obs
+            obs_odom, obs_landmark, obs_robot = obs
             self.idx[i] += 1
             # add initial pose
-            pre_pose = self.get_robot_value_initial(i, self.idx[i] - 1)
+            pre_pose = self.get_robot_value_result(i, self.idx[i] - 1)
+            if not pre_pose:
+                pre_pose = self.get_robot_value_initial(i, self.idx[i] - 1)
             initial_pose = pre_pose * gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2])
             self.add_initial_pose(gtsam.symbol(chr(i + ord('a')), self.idx[i]), initial_pose)
             # add odometry
             self.add_odom(gtsam.symbol(chr(i + ord('a')), self.idx[i] - 1),
                           gtsam.symbol(chr(i + ord('a')), self.idx[i]),
                           gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2]))
-            if obs_landmark != []:
+            if obs_landmark != [] and 0:
                 for obs_l_this in obs_landmark:
                     r, b, idl = obs_l_this
                     idl = int(idl)
@@ -123,8 +126,16 @@ class LandmarkSLAM:
                             gtsam.Point2(r * math.cos(b), r * math.sin(b))))
                     # add landmark observation
                     self.add_bearing_range(gtsam.symbol(chr(i + ord('a')), self.idx[i]), idl, r, b)
+            if obs_robot != []:
+                for obs_r_this in obs_robot:
+                    idr = int(obs_r_this[3])
+                    # add landmark observation
+                    self.add_robot_observation(gtsam.symbol(chr(i + ord('a')), self.idx[i]),
+                                               gtsam.symbol(chr(idr + ord('a')), self.idx[idr]),
+                                               gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
 
             # TODO: add observation of other robots
 
         self.result = self.optimize()
+        # self.result = self.initial
         # print("result: ", result)

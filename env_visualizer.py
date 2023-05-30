@@ -268,7 +268,7 @@ class EnvVisualizer:
             if self.robots_last_pos[i] != []:
                 h = self.axis_graph.plot((self.robots_last_pos[i][0], robot.x),
                                          (self.robots_last_pos[i][1], robot.y),
-                                         color='tab:orange')
+                                         color='tab:orange', linestyle='--')
                 self.robots_traj_plot[i].append(h)
 
             self.robots_last_pos[i] = [robot.x, robot.y]
@@ -360,21 +360,22 @@ class EnvVisualizer:
         y_pos += 2
 
         if rob.cooperative:
-            for i, obj_history in enumerate(rob.perception.observation["dynamic"].values()):
+            for i, obj_history in enumerate(rob.perception.observation["dynamic"]):
                 # plot the current position
-                pos = obj_history[-1][:2]
+                pos = obj_history[:2]
                 # rotate by 90 degree
-                self.axis_perception.add_patch(mpl.patches.Circle((-pos[1], pos[0]), \
+                self.axis_perception.add_patch(mpl.patches.Circle((-pos[1], pos[0]),
                                                                   rob.detect_r, color="b"))
                 relation_pos.append([-pos[1], pos[0]])
                 # include history into observation info
-                for ob in obj_history:
-                    self.axis_observation.text(x_pos, y_pos,
-                                               f"position: ({ob[0]:.2f},{ob[1]:.2f}), velocity: ({ob[2]:.2f},{ob[3]:.2f})")
-                    y_pos += 1
+                # for ob in obj_history:
+                self.axis_observation.text(x_pos, y_pos,
+                                           f"position: ({obj_history[0]:.2f},{obj_history[1]:.2f}),"
+                                           f" velocity: ({obj_history[2]:.2f},{obj_history[3]:.2f})")
+                y_pos += 1
 
-                self.axis_observation.text(x_pos, y_pos, f"Object {i} history", fontweight="bold", fontsize=15)
-                y_pos += 2
+                # self.axis_observation.text(x_pos, y_pos, f"Object {i} history", fontweight="bold", fontsize=15)
+                # y_pos += 2
 
             self.axis_observation.text(x_pos, y_pos, "Dynamic objects", fontweight="bold", fontsize=15)
             y_pos += 2
@@ -542,14 +543,14 @@ class EnvVisualizer:
         self.axis_qvalues.set_yticklabels(labels=ylabelright, fontsize=14)
         self.axis_qvalues.set_xlim([np.min(q_values) - 5, np.max(q_values) + 5])
 
-    def one_step(self, actions, robot_idx=0):
+    def one_step(self, actions, slam_signal = False, robot_idx=0):
         assert len(actions) == len(self.env.robots), "Number of actions not equal number of robots!"
         for i, action in enumerate(actions):
             rob = self.env.robots[i]
             if rob.reach_goal:
                 continue
             current_velocity = self.env.get_velocity(rob.x, rob.y)
-            rob.update_state(action, current_velocity)
+            rob.update_state(action, current_velocity, slam_signal)
 
         self.plot_robots()
         self.plot_measurements(robot_idx)
@@ -608,7 +609,8 @@ class EnvVisualizer:
                 slam_signal = True
             else:
                 slam_signal = False
-            observations = self.env.get_observations(slam_signal)
+            # slam_signal = True
+            observations = self.env.get_observations()
             # for obs in observations:
             #     if obs[1] == True:
             #         stop_signal = True
@@ -622,7 +624,8 @@ class EnvVisualizer:
                     actions.append(apf.act(observations[i][0]))
             if (reached == self.env.num_cooperative):
                 stop_signal = True
-            self.one_step(actions)
+            self.one_step(actions, slam_signal = slam_signal)
+
             if slam_signal:
                 obs_list = self.generate_SLAM_observations(observations)
                 # a =np.empty((1), dtype=object)
@@ -636,7 +639,7 @@ class EnvVisualizer:
         # obs: obs_odom, obs_landmark, obs_robot
         # obs_odom: [dx, dy, dtheta]
         # obs_landmark: [landmark0:range, bearing, id], [landmark1], ...]
-        # obs_robot: [obs0: range, bearing, id], [obs1], ...]
+        # obs_robot: [obs0: dx, dy, dtheta, id], [obs1], ...]
 
         # env obs_list
         # format: {"self": [velocity,goal, odom],
@@ -646,7 +649,7 @@ class EnvVisualizer:
         for i, obs in enumerate(observations):
             if obs[2]:
                 continue
-            self_state, static_states, dynamic_states, idx_array = obs[0]
+            self_state, static_states, dynamic_states = obs[0]
             slam_obs_odom = copy.deepcopy(self_state[4:])
             if len(static_states) != 0:
                 slam_obs_landmark = np.zeros([len(static_states), 3])
@@ -658,8 +661,19 @@ class EnvVisualizer:
                     slam_obs_landmark[j,2] = copy.deepcopy(static_state[3])
             else:
                 slam_obs_landmark = []
-            # TODO: add dynamic obs
-            slam_obs_list[i] = [slam_obs_odom, slam_obs_landmark]
+            if len(dynamic_states) != 0:
+                slam_obs_robot = np.zeros([len(dynamic_states), 4])
+                for j, dynamic_state in enumerate(dynamic_states):
+                    xyt = self.env.robots[i].robot_observation.add_noise(dynamic_state[0],
+                                                                         dynamic_state[1],
+                                                                         dynamic_state[4])
+                    slam_obs_robot[j,0] = copy.deepcopy(xyt[0])
+                    slam_obs_robot[j,1] = copy.deepcopy(xyt[1])
+                    slam_obs_robot[j,2] = copy.deepcopy(xyt[2])
+                    slam_obs_robot[j,3] = copy.deepcopy(dynamic_state[5])
+            else:
+                slam_obs_robot = []
+            slam_obs_list[i] = [slam_obs_odom, slam_obs_landmark, slam_obs_robot]
         return slam_obs_list
 
 
@@ -679,7 +693,7 @@ class EnvVisualizer:
             plt.show()
 
     def visualize_SLAM(self, start_idx=0):
-        color_list = ['tab:green', 'tab:pink', 'tab:orange']
+        color_list = ['tab:green', 'tab:pink', 'tab:red', 'tab:orange', 'tab:purple', 'tab:gray', 'tab:olive']
         for i in range (self.env.num_cooperative):
         # for i in range(1):
             pose = self.landmark_slam.get_robot_trajectory(i, [self.env.robots[0].start[0],

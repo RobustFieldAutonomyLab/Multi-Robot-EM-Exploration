@@ -253,10 +253,10 @@ class MarineNavEnv2():
         y_out = self.robot.y < 0.0 or self.robot.y > self.height
         return x_out or y_out
 
-    def get_observations(self, add_noise=False):
+    def get_observations(self):
         observations = []
         for robot in self.robots:
-            observations.append(robot.perception_output(self.obstacles,self.robots, add_noise))
+            observations.append(robot.perception_output(self.obstacles,self.robots))
         return observations
 
     def check_collision(self):

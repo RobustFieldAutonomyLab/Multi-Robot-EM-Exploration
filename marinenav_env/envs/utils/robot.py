@@ -8,7 +8,7 @@ class Perception:
         # 2D LiDAR model with detection area as a sector
         self.range = 15.0  # range of beams (meter)
         self.angle = 2 * np.pi  # detection angle range
-        self.len_obs_history = 1  # the window size of observation history
+        # self.len_obs_history = 0  # the window size of observation history
         self.observation_format(cooperative)
         self.observed_obs = []  # indices of observed static obstacles
         self.observed_objs = []  # indiced of observed dynamic objects
@@ -16,9 +16,9 @@ class Perception:
     def observation_format(self, cooperative: bool = False):
         # format: {"self": [velocity,goal, odom],
         #          "static":[[obs_1.x,obs_1.y,obs_1.r, obs_1.id],...,[obs_n.x,obs_n.y,obs_n.r, obs_n.id]],
-        #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}
+        #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy,robot_1.theta]_(t-m),...,[]_t]...}
         if cooperative:
-            self.observation = dict(self=[], static=[], dynamic={})
+            self.observation = dict(self=[], static=[], dynamic=[])
         else:
             self.observation = dict(self=[], static=[])
 
@@ -32,11 +32,11 @@ def theta_0_to_2pi(theta):
 
 
 class Odometry:
-    def __init__(self, seed = 0):
-        max_g_error = 5 / 180 * np.pi  #max gyro error
+    def __init__(self, seed=0):
+        max_g_error = 5 / 180 * np.pi  # max gyro error
         max_a_error = 0.05  # max acceleration error
         max_a_p_error = 0.05  # max acceleration error percentage
-        z_score = 1.96 # 95% confidence interval
+        z_score = 1.96  # 95% confidence interval
 
         self.sigma_g = max_g_error / z_score
         self.sigma_a = max_a_error / z_score  # accel noise
@@ -44,20 +44,21 @@ class Odometry:
         self.x_old = None
         self.y_old = None
         self.theta_old = None
-        self.observation = [0,0,0]
+        self.observation = [0, 0, 0]
 
     def reset(self, x0, y0, theta0):
         self.x_old = x0
         self.y_old = y0
         self.theta_old = theta0
 
-    def pose_vector_to_matrix(self, x,y, theta):
+    def pose_vector_to_matrix(self, x, y, theta):
         # compose matrix expression of pose vector
         R_rw = np.matrix([[np.cos(theta), -np.sin(theta)],
                           [np.sin(theta), np.cos(theta)]])
         t_rw = np.matrix([[x], [y]])
 
         return R_rw, t_rw
+
     def world_to_local(self, x, y, theta):
         # compute transformation from world frame to robot frame
         R_wr, t_wr = self.pose_vector_to_matrix(self.x_old, self.y_old, self.theta_old)
@@ -90,16 +91,20 @@ class Odometry:
         dx_noisy = dx + w_a * np.cos(dtheta_noisy)
         dy_noisy = dy + w_a * np.sin(dtheta_noisy)
 
+        dtheta_noisy = theta_0_to_2pi(dtheta)
+        dx_noisy = dx
+        dy_noisy = dy
         self.observation = [dx_noisy, dy_noisy, dtheta_noisy]
 
     def get_odom(self):
         return self.observation
 
+
 class RangeBearingMeasurement:
     def __init__(self):
-        max_b_error = 0.5 / 180 * np.pi # max bearing error
-        max_r_error = 0.2 # max range error
-        z_score = 1.96 # 95% confidence interval
+        max_b_error = 0.5 / 180 * np.pi  # max bearing error
+        max_r_error = 0.1  # max range error
+        z_score = 1.96  # 95% confidence interval
 
         self.sigma_r = max_r_error / z_score
         self.sigma_b = max_b_error / z_score
@@ -108,8 +113,31 @@ class RangeBearingMeasurement:
         r_noisy = np.linalg.norm([x_obs, y_obs]) + np.random.normal(0, self.sigma_r)
         b_noisy = np.arctan2(y_obs, x_obs) + np.random.normal(0, self.sigma_b)
 
+        r_noisy = np.linalg.norm([x_obs, y_obs])
+        b_noisy = np.arctan2(y_obs, x_obs)
+
         return [r_noisy, b_noisy]
 
+
+class RobotNeighborMeasurement:
+    def __init__(self):
+        max_b_error = 0.5 / 180 * np.pi  # max bearing error
+        max_r_error = 0.01  # max range error
+        z_score = 1.96  # 95% confidence interval
+
+        self.sigma_r = max_r_error / z_score
+        self.sigma_b = max_b_error / z_score
+
+    def add_noise(self, x_obs, y_obs, theta_obs):
+        x_noisy = x_obs + np.random.normal(0, self.sigma_r)
+        y_noisy = y_obs + np.random.normal(0, self.sigma_r)
+        theta_noisy = theta_obs + np.random.normal(0, self.sigma_b)
+
+        x_noisy = x_obs
+        y_noisy = y_obs
+        theta_noisy = theta_obs
+
+        return [x_noisy, y_noisy, theta_noisy]
 class Robot:
 
     def __init__(self, cooperative: bool = False):
@@ -149,6 +177,7 @@ class Robot:
         self.odometry = Odometry()  # odometry
         # add noisy to landmark observation
         self.landmark_observation = RangeBearingMeasurement()
+        self.robot_observation = RobotNeighborMeasurement()
 
     def compute_k(self):
         self.k = np.max(self.a) / self.max_speed
@@ -223,7 +252,7 @@ class Robot:
             steer_velocity = self.get_steer_velocity(velocity, theta)
             return steer_velocity + current_velocity
 
-    def update_state(self, action, current_velocity):
+    def update_state(self, action, current_velocity, add_noise=False):
         # update robot position in one time step
         self.update_velocity(current_velocity)
         dis = self.velocity * self.dt
@@ -246,8 +275,8 @@ class Robot:
         while self.theta >= 2 * np.pi:
             self.theta -= 2 * np.pi
         # print(self.x, self.y, self.theta/np.pi * 180, self.velocity)
-
-        # self.odometry.add_noise(self.x, self.y, self.theta)
+        if add_noise:
+            self.odometry.add_noise(self.x, self.y, self.theta)
 
     def check_collision(self, obj_x, obj_y, obj_r):
         d = np.sqrt((self.x - obj_x) ** 2 + (self.y - obj_y) ** 2)
@@ -333,12 +362,13 @@ class Robot:
         x_r.resize((2,))
         return np.array(x_r)
 
-    def perception_output(self, obstacles, robots, add_noise=False):
+    def perception_output(self, obstacles, robots):
         # TODO: remove LiDAR reflection computations and check dynamic obstacle observation error
         if self.reach_goal:
             return None, False, True
 
         self.perception.observation["static"].clear()
+        self.perception.observation["dynamic"].clear()
 
         ##### self observation (velocity and goal in self frame) #####
         # vehicle velocity wrt seafloor in self frame
@@ -346,9 +376,8 @@ class Robot:
 
         # goal position in self frame
         goal_r = self.project_to_robot_frame(self.goal, False)
-        if add_noise:
-            self.odometry.add_noise(self.x, self.y, self.theta)
-        self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r, np.array(self.odometry.get_odom()))))
+        self.perception.observation["self"] = list(
+            np.concatenate((goal_r, abs_velocity_r, np.array(self.odometry.get_odom()))))
 
         ##### observation of other objects #####
         self.perception.observed_obs.clear()
@@ -389,13 +418,15 @@ class Robot:
 
                 pos_r = self.project_to_robot_frame(np.array([robot.x, robot.y]), False)
                 v_r = self.project_to_robot_frame(robot.velocity)
-                new_obs = list(np.concatenate((pos_r, v_r)))
-                if j in self.perception.observation["dynamic"].copy().keys():
-                    self.perception.observation["dynamic"][j].append(new_obs)
-                    while len(self.perception.observation["dynamic"][j]) > self.perception.len_obs_history:
-                        del self.perception.observation["dynamic"][j][0]
-                else:
-                    self.perception.observation["dynamic"][j] = [new_obs]
+                theta_r = theta_0_to_2pi(robot.theta - self.theta)
+                new_obs = list([pos_r[0], pos_r[1], v_r[0], v_r[1], theta_r, j])
+                self.perception.observation["dynamic"].append(new_obs)
+                # if j in self.perception.observation["dynamic"].copy().keys():
+                #     self.perception.observation["dynamic"][j].append(new_obs)
+                #     while len(self.perception.observation["dynamic"][j]) > self.perception.len_obs_history:
+                #         del self.perception.observation["dynamic"][j][0]
+                # else:
+                #     self.perception.observation["dynamic"][j] = [new_obs]
 
         # for rel_a in self.perception.beam_angles:
         #     angle = self.theta + rel_a
@@ -488,24 +519,26 @@ class Robot:
         #             else:
         #                 self.perception.observation["dynamic"][idx] = [new_obs]
 
-        if self.cooperative:
-            for idx in self.perception.observation["dynamic"].copy().keys():
-                if idx not in self.perception.observed_objs:
-                    # remove the observation history if the object is not observed in the current step
-                    del self.perception.observation["dynamic"][idx]
+        # if self.cooperative:
+        #     for idx in self.perception.observation["dynamic"].copy().keys():
+        #         if idx not in self.perception.observed_objs:
+        #             # remove the observation history if the object is not observed in the current step
+        #             del self.perception.observation["dynamic"][idx]
 
         self_state = copy.deepcopy(self.perception.observation["self"])
         static_states = copy.deepcopy(self.perception.observation["static"])
         if self.cooperative:
             # remove object indices 
-            dynamic_states = copy.deepcopy(list(self.perception.observation["dynamic"].values()))
-            idx_array = []
-            for idx, obs_history in enumerate(dynamic_states):
-                # pad the dynamic observation and save the indices of exact lastest element
-                idx_array.append([idx, len(obs_history) - 1])
-                while len(obs_history) < self.perception.len_obs_history:
-                    obs_history.append([0., 0., 0., 0.])
-            obs = (self_state, static_states, dynamic_states, idx_array)
+            # dynamic_states = copy.deepcopy(list(self.perception.observation["dynamic"].values()))
+            # idx_array = []
+            # for idx, obs_history in enumerate(dynamic_states):
+            #     # pad the dynamic observation and save the indices of exact lastest element
+            #     idx_array.append([idx, len(obs_history) - 1])
+            #     while len(obs_history) < self.perception.len_obs_history:
+            #         obs_history.append([0., 0., 0., 0.])
+            # obs = (self_state, static_states, dynamic_states, idx_array)
+            dynamic_states = copy.deepcopy(self.perception.observation["dynamic"])
+            obs = (self_state, static_states, dynamic_states)
             return obs, collision, self.reach_goal
         else:
             return (self_state, static_states), collision, self.reach_goal
