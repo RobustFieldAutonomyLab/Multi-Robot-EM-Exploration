@@ -33,7 +33,7 @@ def theta_0_to_2pi(theta):
 
 class Odometry:
     def __init__(self, seed = 0):
-        max_g_error = 5 / 360 * np.pi  #max gyro error
+        max_g_error = 5 / 180 * np.pi  #max gyro error
         max_a_error = 0.05  # max acceleration error
         max_a_p_error = 0.05  # max acceleration error percentage
         z_score = 1.96 # 95% confidence interval
@@ -51,13 +51,29 @@ class Odometry:
         self.y_old = y0
         self.theta_old = theta0
 
+    def pose_vector_to_matrix(self, x,y, theta):
+        # compose matrix expression of pose vector
+        R_rw = np.matrix([[np.cos(theta), -np.sin(theta)],
+                          [np.sin(theta), np.cos(theta)]])
+        t_rw = np.matrix([[x], [y]])
+
+        return R_rw, t_rw
+    def world_to_local(self, x, y, theta):
+        # compute transformation from world frame to robot frame
+        R_wr, t_wr = self.pose_vector_to_matrix(self.x_old, self.y_old, self.theta_old)
+        R_rw = np.transpose(R_wr)
+        t_rw = -R_rw * t_wr
+
+        R_this, t_this = self.pose_vector_to_matrix(x, y, theta)
+        t_this = R_rw * t_this + t_rw
+
+        return t_this[0, 0], t_this[1, 0], theta_0_to_2pi(theta - self.theta_old)
+
     def add_noise(self, x_new, y_new, theta_new):
         if self.x_old is None:
             raise ValueError("Odometry is not initialized!")
 
-        dx = x_new - self.x_old
-        dy = y_new - self.y_old
-        dtheta = theta_new - self.theta_old
+        dx, dy, dtheta = self.world_to_local(x_new, y_new, theta_new)
 
         self.x_old = x_new
         self.y_old = y_new
@@ -74,9 +90,6 @@ class Odometry:
         dx_noisy = dx + w_a * np.cos(dtheta_noisy)
         dy_noisy = dy + w_a * np.sin(dtheta_noisy)
 
-        dtheta_noisy = theta_0_to_2pi(dtheta)
-        dx_noisy = dx
-        dy_noisy = dy
         self.observation = [dx_noisy, dy_noisy, dtheta_noisy]
 
     def get_odom(self):
@@ -84,7 +97,7 @@ class Odometry:
 
 class RangeBearingMeasurement:
     def __init__(self):
-        max_b_error = 0.5 / 360 * np.pi # max bearing error
+        max_b_error = 0.5 / 180 * np.pi # max bearing error
         max_r_error = 0.2 # max range error
         z_score = 1.96 # 95% confidence interval
 
@@ -95,8 +108,6 @@ class RangeBearingMeasurement:
         r_noisy = np.linalg.norm([x_obs, y_obs]) + np.random.normal(0, self.sigma_r)
         b_noisy = np.arctan2(y_obs, x_obs) + np.random.normal(0, self.sigma_b)
 
-        r_noisy = np.linalg.norm([x_obs, y_obs])
-        b_noisy = np.arctan2(y_obs, x_obs)
         return [r_noisy, b_noisy]
 
 class Robot:
@@ -236,7 +247,7 @@ class Robot:
             self.theta -= 2 * np.pi
         # print(self.x, self.y, self.theta/np.pi * 180, self.velocity)
 
-        self.odometry.add_noise(self.x, self.y, self.theta)
+        # self.odometry.add_noise(self.x, self.y, self.theta)
 
     def check_collision(self, obj_x, obj_y, obj_r):
         d = np.sqrt((self.x - obj_x) ** 2 + (self.y - obj_y) ** 2)
@@ -322,7 +333,7 @@ class Robot:
         x_r.resize((2,))
         return np.array(x_r)
 
-    def perception_output(self, obstacles, robots):
+    def perception_output(self, obstacles, robots, add_noise=False):
         # TODO: remove LiDAR reflection computations and check dynamic obstacle observation error
         if self.reach_goal:
             return None, False, True
@@ -335,7 +346,8 @@ class Robot:
 
         # goal position in self frame
         goal_r = self.project_to_robot_frame(self.goal, False)
-
+        if add_noise:
+            self.odometry.add_noise(self.x, self.y, self.theta)
         self.perception.observation["self"] = list(np.concatenate((goal_r, abs_velocity_r, np.array(self.odometry.get_odom()))))
 
         ##### observation of other objects #####

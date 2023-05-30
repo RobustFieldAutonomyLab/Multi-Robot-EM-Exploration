@@ -63,6 +63,8 @@ class EnvVisualizer:
 
         self.landmark_slam = LandmarkSLAM(seed)
         self.landmark_slam.reset_graph(len(self.env.robots))
+        self.slam_frequency = 10
+
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -599,9 +601,14 @@ class EnvVisualizer:
 
     def navigate_one_step(self):
         stop_signal = False
+        odom_cnt = 0
         while not stop_signal:
             reached = 0
-            observations = self.env.get_observations()
+            if odom_cnt % self.slam_frequency == 0:
+                slam_signal = True
+            else:
+                slam_signal = False
+            observations = self.env.get_observations(slam_signal)
             # for obs in observations:
             #     if obs[1] == True:
             #         stop_signal = True
@@ -616,8 +623,12 @@ class EnvVisualizer:
             if (reached == self.env.num_cooperative):
                 stop_signal = True
             self.one_step(actions)
-            obs_list = self.generate_SLAM_observations(observations)
-            self.landmark_slam.add_one_step(obs_list)
+            if slam_signal:
+                obs_list = self.generate_SLAM_observations(observations)
+                # a =np.empty((1), dtype=object)
+                # a[0] = obs_list[1]
+                self.landmark_slam.add_one_step(obs_list)
+            odom_cnt += 1
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
@@ -668,8 +679,13 @@ class EnvVisualizer:
             plt.show()
 
     def visualize_SLAM(self, start_idx=0):
-        pose = self.landmark_slam.get_robot_trajectory(0, [self.env.robots[0].start[0], self.env.robots[0].start[1], self.env.robots[0].init_theta])
-        self.axis_graph.plot(pose[:,0],pose[:,1],color='tab:green')
+        color_list = ['tab:green', 'tab:pink', 'tab:orange']
+        for i in range (self.env.num_cooperative):
+        # for i in range(1):
+            pose = self.landmark_slam.get_robot_trajectory(i, [self.env.robots[0].start[0],
+                                                               self.env.robots[0].start[1],
+                                                               self.env.robots[0].init_theta])
+            self.axis_graph.plot(pose[:,0],pose[:,1],color=color_list[i])
     def load_env_config(self, episode_dict):
         episode = copy.deepcopy(episode_dict)
 

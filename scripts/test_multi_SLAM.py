@@ -1,8 +1,8 @@
 import sys
 sys.path.insert(0,"../")
 import env_visualizer
+from tqdm import tqdm
 
-import gtsam
 
 if 1:
     # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
@@ -12,8 +12,8 @@ if 1:
     # ev.visualize_navigation()
 
     #Do a ten step navigate
-    n = 1
-    for i in range (0, n):
+    n = 10
+    for i in tqdm( range (0, n)):
         goals = []
         speed = 20
         direction_list = [[0,1], [-1,1], [-1,0], [-1,-1],

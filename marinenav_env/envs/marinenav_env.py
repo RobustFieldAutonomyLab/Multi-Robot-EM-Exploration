@@ -51,9 +51,9 @@ class MarineNavEnv2():
         self.goal_reward = 100.0
         self.discount = 0.99
         self.num_cores = 0 # number of vortices
-        self.num_obs = 0# 28 # number of static obstacles
+        self.num_obs = 28 # number of static obstacles
         self.min_start_goal_dis = 30.0
-        self.num_cooperative = 1 # number of cooperative robots
+        self.num_cooperative = 3 # number of cooperative robots
         self.num_non_cooperative = 0 # number of non-cooperative robots
 
         self.robots = [] # list of robots
@@ -253,10 +253,10 @@ class MarineNavEnv2():
         y_out = self.robot.y < 0.0 or self.robot.y > self.height
         return x_out or y_out
 
-    def get_observations(self):
+    def get_observations(self, add_noise=False):
         observations = []
         for robot in self.robots:
-            observations.append(robot.perception_output(self.obstacles,self.robots))
+            observations.append(robot.perception_output(self.obstacles,self.robots, add_noise))
         return observations
 
     def check_collision(self):
