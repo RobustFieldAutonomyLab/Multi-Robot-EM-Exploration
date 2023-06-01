@@ -1,7 +1,6 @@
 import numpy as np
 import gtsam
-import math
-
+import copy
 
 class LandmarkSLAM:
     def __init__(self, seed: int = 0):
@@ -18,9 +17,12 @@ class LandmarkSLAM:
         # Noise models for the range bearing measurements
         self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004])
         # Noise models for the robot observations
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
 
         self.parameters = gtsam.LevenbergMarquardtParams()
+
+        #for deugging
+        self.landmark_list = [[] for _ in range(28)]
 
     def reset_graph(self, num_robot):
         self.graph.resize(0)
@@ -29,10 +31,7 @@ class LandmarkSLAM:
         self.idl = 0
 
         for i in range(0, num_robot):
-            self.idx.append(0)
-            if i == 0:
-                self.add_prior(gtsam.symbol(chr(i + ord('a')), 0), gtsam.Pose2(0, 0, 0))
-            self.add_initial_pose(gtsam.symbol(chr(i + ord('a')), 0), gtsam.Pose2(0, 0, 0))
+            self.idx.append(-1)
 
     def add_prior(self, idx: gtsam.symbol, pose: gtsam.Pose2):
         self.graph.add(gtsam.PriorFactorPose2(idx, pose, self.prior_noise_model))
@@ -48,6 +47,11 @@ class LandmarkSLAM:
 
     def add_robot_observation(self, idx0: gtsam.symbol, idx1: gtsam.symbol, pose: gtsam.Pose2):
         self.graph.add(gtsam.BetweenFactorPose2(idx0, idx1, pose, self.robot_noise_model))
+        # if self.initial.exists(idx0):
+        #     pose_1 = self.initial.atPose2(idx0).compose(pose)
+        # if self.initial.exists(idx1):
+        #     dpose = self.initial.atPose2(idx1).between(pose_1)
+        #     print("Residual calculated pose: ", idx1, " from ", idx0, ":",dpose)
 
     def add_initial_pose(self, idx: gtsam.symbol, pose: gtsam.Pose2):
         self.initial.insert(idx, pose)
@@ -79,9 +83,9 @@ class LandmarkSLAM:
         return gtsam.symbol(chr(robot_id + ord('a')), idx)
 
     def get_robot_trajectory(self, robot_id, origin):
-        pose2_list = np.zeros([self.idx[robot_id], 3])
+        pose2_list = np.zeros([self.idx[robot_id] + 1, 3])
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
-        for i in range(self.idx[robot_id]):
+        for i in range(self.idx[robot_id] + 1):
             pose = self.result.atPose2(self.get_symbol(robot_id, i))
             pose = origin_pose.compose(pose)
             pose2_list[i, 0] = pose.x()
@@ -90,8 +94,28 @@ class LandmarkSLAM:
         # print("initial: ", self.initial)
         # print("graph: ", self.graph)
         # print("result: ", self.result)
-        return pose2_list
+        landmark_list = copy.deepcopy(self.landmark_list)
+        for i, landmark_list_this in enumerate(self.landmark_list):
+            for j, obs in enumerate(landmark_list_this):
+                landmark_list[i][j] = origin_pose.transformFrom(obs)
 
+        print("landmark_list: ", landmark_list)
+        return pose2_list, landmark_list
+
+    def init_SLAM(self, robot_id, obs_robot):
+        if robot_id == 0:
+            self.add_prior(gtsam.symbol(chr(robot_id + ord('a')), 0), gtsam.Pose2(0, 0, 0))
+            self.add_initial_pose(gtsam.symbol(chr(robot_id + ord('a')), 0), gtsam.Pose2(0, 0, 0))
+        elif obs_robot != []:
+            for obs_r_this in obs_robot:
+                idr = int(obs_r_this[3])
+                if idr == 0:
+                    self.add_initial_pose(gtsam.symbol(chr(robot_id + ord('a')), 0),
+                            gtsam.Pose2(0, 0, 0).compose(
+                                gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]).inverse()
+                            ))
+        else:
+            raise ValueError("Fail to initialize SLAM graph")
     # TODO: add keyframe strategy
     def add_one_step(self, obs_list):
         # obs: obs_odom, obs_landmark, obs_robot
@@ -104,38 +128,51 @@ class LandmarkSLAM:
         for i, obs in enumerate(obs_list):
             if not obs:
                 continue
-            obs_odom, obs_landmark, obs_robot = obs
             self.idx[i] += 1
-            # add initial pose
-            pre_pose = self.get_robot_value_result(i, self.idx[i] - 1)
-            if not pre_pose:
-                pre_pose = self.get_robot_value_initial(i, self.idx[i] - 1)
-            initial_pose = pre_pose * gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2])
-            self.add_initial_pose(gtsam.symbol(chr(i + ord('a')), self.idx[i]), initial_pose)
-            # add odometry
-            self.add_odom(gtsam.symbol(chr(i + ord('a')), self.idx[i] - 1),
-                          gtsam.symbol(chr(i + ord('a')), self.idx[i]),
-                          gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2]))
-            if obs_landmark != [] and 0:
+            obs_odom, obs_landmark, obs_robot = obs
+            if self.idx[i] == 0:
+                # add initial pose
+                self.init_SLAM(i, obs_robot)
+            else:
+                # add odometry
+                pre_pose = self.get_robot_value_result(i, self.idx[i] - 1)
+                if not pre_pose:
+                    pre_pose = self.get_robot_value_initial(i, self.idx[i] - 1)
+                initial_pose = pre_pose * gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2])
+                self.add_initial_pose(gtsam.symbol(chr(i + ord('a')), self.idx[i]), initial_pose)
+
+                self.add_odom(gtsam.symbol(chr(i + ord('a')), self.idx[i] - 1),
+                              gtsam.symbol(chr(i + ord('a')), self.idx[i]),
+                              gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2]))
+
+            if obs_landmark != []:
                 for obs_l_this in obs_landmark:
                     r, b, idl = obs_l_this
                     idl = int(idl)
                     # add landmark initial
+                    self.landmark_list[idl].append(initial_pose.transformFrom(
+                        gtsam.Point2(r * np.cos(b), r * np.sin(b))))
                     if not self.initial.exists(idl):
                         self.add_initial_landmark(idl, initial_pose.transformFrom(
-                            gtsam.Point2(r * math.cos(b), r * math.sin(b))))
+                            gtsam.Point2(r * np.cos(b), r * np.sin(b))))
                     # add landmark observation
                     self.add_bearing_range(gtsam.symbol(chr(i + ord('a')), self.idx[i]), idl, r, b)
+
             if obs_robot != []:
                 for obs_r_this in obs_robot:
                     idr = int(obs_r_this[3])
                     # add landmark observation
-                    self.add_robot_observation(gtsam.symbol(chr(i + ord('a')), self.idx[i]),
+                    if idr > i and obs_list[idr] is not None:
+                        # This means the latest id of robot neighbor is not yet updated to this timestamp
+                        self.add_robot_observation(gtsam.symbol(chr(i + ord('a')), self.idx[i]),
+                                                   gtsam.symbol(chr(idr + ord('a')), self.idx[idr] + 1),
+                                                   gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
+                    else:
+                        self.add_robot_observation(gtsam.symbol(chr(i + ord('a')), self.idx[i]),
                                                gtsam.symbol(chr(idr + ord('a')), self.idx[idr]),
                                                gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
 
-            # TODO: add observation of other robots
 
-        self.result = self.optimize()
-        # self.result = self.initial
+        # self.result = self.optimize()
+        self.result = self.initial
         # print("result: ", result)

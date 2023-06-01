@@ -550,7 +550,7 @@ class EnvVisualizer:
             if rob.reach_goal:
                 continue
             current_velocity = self.env.get_velocity(rob.x, rob.y)
-            rob.update_state(action, current_velocity, slam_signal)
+            rob.update_state(action, current_velocity)
 
         self.plot_robots()
         self.plot_measurements(robot_idx)
@@ -605,16 +605,18 @@ class EnvVisualizer:
         odom_cnt = 0
         while not stop_signal:
             reached = 0
-            if odom_cnt % self.slam_frequency == 0:
+            if odom_cnt % self.slam_frequency == self.slam_frequency - 1:
                 slam_signal = True
             else:
                 slam_signal = False
             # slam_signal = True
             observations = self.env.get_observations()
-            # for obs in observations:
-            #     if obs[1] == True:
-            #         stop_signal = True
-            #         break
+
+            if slam_signal:
+                obs_list = self.generate_SLAM_observations(observations)
+                self.landmark_slam.add_one_step(obs_list)
+            odom_cnt += 1
+
             actions = []
             for i, apf in enumerate(self.APF_agents):
                 if self.env.robots[i].reach_goal:
@@ -626,13 +628,6 @@ class EnvVisualizer:
                 stop_signal = True
             self.one_step(actions, slam_signal = slam_signal)
 
-            if slam_signal:
-                obs_list = self.generate_SLAM_observations(observations)
-                # a =np.empty((1), dtype=object)
-                # a[0] = obs_list[1]
-                self.landmark_slam.add_one_step(obs_list)
-            odom_cnt += 1
-
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
         # SLAM obs_list
@@ -642,7 +637,7 @@ class EnvVisualizer:
         # obs_robot: [obs0: dx, dy, dtheta, id], [obs1], ...]
 
         # env obs_list
-        # format: {"self": [velocity,goal, odom],
+        # format: {"self": [velocity,goal,pose],
         #          "static":[[obs_1.x,obs_1.y,obs_1.r, obs_1.id],...,[obs_n.x,obs_n.y,obs_n.r, obs_n.id]],
         #          "dynamic":{id_1:[[robot_1.x,robot_1.y,robot_1.vx,robot_1.vy]_(t-m),...,[]_t]...}
         slam_obs_list = np.empty((len(observations),), dtype=object)
@@ -650,7 +645,8 @@ class EnvVisualizer:
             if obs[2]:
                 continue
             self_state, static_states, dynamic_states = obs[0]
-            slam_obs_odom = copy.deepcopy(self_state[4:])
+            self.env.robots[i].odometry.add_noise(self_state[4], self_state[5], self_state[6])
+            slam_obs_odom = np.array(self.env.robots[i].odometry.get_odom())
             if len(static_states) != 0:
                 slam_obs_landmark = np.zeros([len(static_states), 3])
                 for j, static_state in enumerate(static_states):
@@ -693,13 +689,20 @@ class EnvVisualizer:
             plt.show()
 
     def visualize_SLAM(self, start_idx=0):
-        color_list = ['tab:green', 'tab:pink', 'tab:red', 'tab:orange', 'tab:purple', 'tab:gray', 'tab:olive']
+        color_list = ['tab:pink', 'tab:green','tab:red', 'tab:purple',  'tab:orange', 'tab:gray', 'tab:olive']
         for i in range (self.env.num_cooperative):
         # for i in range(1):
-            pose = self.landmark_slam.get_robot_trajectory(i, [self.env.robots[0].start[0],
+            pose, landmark_list = self.landmark_slam.get_robot_trajectory(i, [self.env.robots[0].start[0],
                                                                self.env.robots[0].start[1],
                                                                self.env.robots[0].init_theta])
-            self.axis_graph.plot(pose[:,0],pose[:,1],color=color_list[i])
+            self.axis_graph.plot(pose[:,0],pose[:,1],color=color_list[i], linewidth = 2, zorder=10)
+            # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
+            for j, this_landmark_list in enumerate(landmark_list):
+                if this_landmark_list == []:
+                    continue
+                for landmark_obs in this_landmark_list:
+                    self.axis_graph.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
+
     def load_env_config(self, episode_dict):
         episode = copy.deepcopy(episode_dict)
 
@@ -908,5 +911,6 @@ class EnvVisualizer:
         return self.step
 
     def draw_present_position(self):
+        pass
         for robot in self.env.robots:
             self.axis_graph.scatter(robot.x, robot.y, marker="*", color="yellow", s=500, zorder=5)

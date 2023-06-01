@@ -110,11 +110,15 @@ class RangeBearingMeasurement:
         self.sigma_b = max_b_error / z_score
 
     def add_noise(self, x_obs, y_obs):
-        r_noisy = np.linalg.norm([x_obs, y_obs]) + np.random.normal(0, self.sigma_r)
-        b_noisy = np.arctan2(y_obs, x_obs) + np.random.normal(0, self.sigma_b)
+        r = np.linalg.norm([x_obs, y_obs])
+        b = np.arccos(x_obs / r) # [0, PI]
+        if y_obs < 0:
+            b = 2 * np.pi - b
+        r_noisy = r + np.random.normal(0, self.sigma_r)
+        b_noisy = b + np.random.normal(0, self.sigma_b)
 
-        r_noisy = np.linalg.norm([x_obs, y_obs])
-        b_noisy = np.arctan2(y_obs, x_obs)
+        r_noisy = r
+        b_noisy = b
 
         return [r_noisy, b_noisy]
 
@@ -252,7 +256,7 @@ class Robot:
             steer_velocity = self.get_steer_velocity(velocity, theta)
             return steer_velocity + current_velocity
 
-    def update_state(self, action, current_velocity, add_noise=False):
+    def update_state(self, action, current_velocity):
         # update robot position in one time step
         self.update_velocity(current_velocity)
         dis = self.velocity * self.dt
@@ -275,8 +279,8 @@ class Robot:
         while self.theta >= 2 * np.pi:
             self.theta -= 2 * np.pi
         # print(self.x, self.y, self.theta/np.pi * 180, self.velocity)
-        if add_noise:
-            self.odometry.add_noise(self.x, self.y, self.theta)
+        # if add_noise:
+        #     self.odometry.add_noise(self.x, self.y, self.theta)
 
     def check_collision(self, obj_x, obj_y, obj_r):
         d = np.sqrt((self.x - obj_x) ** 2 + (self.y - obj_y) ** 2)
@@ -376,8 +380,9 @@ class Robot:
 
         # goal position in self frame
         goal_r = self.project_to_robot_frame(self.goal, False)
-        self.perception.observation["self"] = list(
-            np.concatenate((goal_r, abs_velocity_r, np.array(self.odometry.get_odom()))))
+        self.perception.observation["self"] = [goal_r[0], goal_r[1],
+                                               abs_velocity_r[0], abs_velocity_r[1],
+                                               self.x, self.y, self.theta]
 
         ##### observation of other objects #####
         self.perception.observed_obs.clear()
