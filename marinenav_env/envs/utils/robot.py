@@ -76,9 +76,9 @@ class Odometry:
 
         dx, dy, dtheta = self.world_to_local(x_new, y_new, theta_new)
 
-        self.x_old = x_new
-        self.y_old = y_new
-        self.theta_old = theta_new
+        self.x_old = copy.deepcopy(x_new)
+        self.y_old = copy.deepcopy(y_new)
+        self.theta_old = copy.deepcopy(theta_new)
 
         # max acceleration 5 cm / 5% of measurement
         sigma_a_p = self.sigma_a_p * np.linalg.norm([dx, dy])
@@ -91,9 +91,9 @@ class Odometry:
         dx_noisy = dx + w_a * np.cos(dtheta_noisy)
         dy_noisy = dy + w_a * np.sin(dtheta_noisy)
 
-        dtheta_noisy = theta_0_to_2pi(dtheta)
-        dx_noisy = dx
-        dy_noisy = dy
+        # dtheta_noisy = theta_0_to_2pi(dtheta)
+        # dx_noisy = dx
+        # dy_noisy = dy
         self.observation = [dx_noisy, dy_noisy, dtheta_noisy]
 
     def get_odom(self):
@@ -117,8 +117,8 @@ class RangeBearingMeasurement:
         r_noisy = r + np.random.normal(0, self.sigma_r)
         b_noisy = b + np.random.normal(0, self.sigma_b)
 
-        r_noisy = r
-        b_noisy = b
+        # r_noisy = r
+        # b_noisy = b
 
         return [r_noisy, b_noisy]
 
@@ -126,7 +126,7 @@ class RangeBearingMeasurement:
 class RobotNeighborMeasurement:
     def __init__(self):
         max_b_error = 0.5 / 180 * np.pi  # max bearing error
-        max_r_error = 0.01  # max range error
+        max_r_error = 0.05  # max range error
         z_score = 1.96  # 95% confidence interval
 
         self.sigma_r = max_r_error / z_score
@@ -137,9 +137,9 @@ class RobotNeighborMeasurement:
         y_noisy = y_obs + np.random.normal(0, self.sigma_r)
         theta_noisy = theta_obs + np.random.normal(0, self.sigma_b)
 
-        x_noisy = x_obs
-        y_noisy = y_obs
-        theta_noisy = theta_obs
+        # x_noisy = x_obs
+        # y_noisy = y_obs
+        # theta_noisy = theta_obs
 
         return [x_noisy, y_noisy, theta_noisy]
 class Robot:

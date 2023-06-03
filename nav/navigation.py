@@ -17,12 +17,12 @@ class LandmarkSLAM:
         # Noise models for the range bearing measurements
         self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004])
         # Noise models for the robot observations
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
         #for deugging
-        self.landmark_list = [[] for _ in range(28)]
+        # self.landmark_list = [[] for _ in range(28)]
 
     def reset_graph(self, num_robot):
         self.graph.resize(0)
@@ -94,13 +94,24 @@ class LandmarkSLAM:
         # print("initial: ", self.initial)
         # print("graph: ", self.graph)
         # print("result: ", self.result)
-        landmark_list = copy.deepcopy(self.landmark_list)
-        for i, landmark_list_this in enumerate(self.landmark_list):
-            for j, obs in enumerate(landmark_list_this):
-                landmark_list[i][j] = origin_pose.transformFrom(obs)
+        # landmark_list = copy.deepcopy(self.landmark_list)
+        # for i, landmark_list_this in enumerate(self.landmark_list):
+        #     for j, obs in enumerate(landmark_list_this):
+        #         landmark_list[i][j] = origin_pose.transformFrom(obs)
 
-        print("landmark_list: ", landmark_list)
-        return pose2_list, landmark_list
+        # print("landmark_list: ", landmark_list)
+        # return pose2_list, landmark_list
+        return pose2_list
+
+    def get_landmark_list(self, origin):
+        landmark_list = []
+        origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
+        for key in self.result.keys():
+            if key < ord('a'):
+                landmark_position = self.result.atPoint2(key)
+                if landmark_position is not None:
+                    landmark_list.append(origin_pose.transformFrom(landmark_position))
+        return landmark_list
 
     def init_SLAM(self, robot_id, obs_robot):
         if robot_id == 0:
@@ -150,8 +161,8 @@ class LandmarkSLAM:
                     r, b, idl = obs_l_this
                     idl = int(idl)
                     # add landmark initial
-                    self.landmark_list[idl].append(initial_pose.transformFrom(
-                        gtsam.Point2(r * np.cos(b), r * np.sin(b))))
+                    # self.landmark_list[idl].append(initial_pose.transformFrom(
+                    #     gtsam.Point2(r * np.cos(b), r * np.sin(b))))
                     if not self.initial.exists(idl):
                         self.add_initial_landmark(idl, initial_pose.transformFrom(
                             gtsam.Point2(r * np.cos(b), r * np.sin(b))))
@@ -173,6 +184,6 @@ class LandmarkSLAM:
                                                gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
 
 
-        # self.result = self.optimize()
-        self.result = self.initial
+        self.result = self.optimize()
+        # self.result = self.initial
         # print("result: ", result)

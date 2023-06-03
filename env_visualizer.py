@@ -156,10 +156,10 @@ class EnvVisualizer:
             self.fig = plt.figure(figsize=(32, 16))
             spec = self.fig.add_gridspec(5, 4)
             self.axis_graph = self.fig.add_subplot(spec[:, :2])
-            self.axis_goal = self.fig.add_subplot(spec[0, 2])
-            self.axis_perception = self.fig.add_subplot(spec[1:3, 2])
-            self.axis_dvl = self.fig.add_subplot(spec[3:, 2])
-            self.axis_observation = self.fig.add_subplot(spec[:, 3])
+            # self.axis_goal = self.fig.add_subplot(spec[0, 2])
+            # self.axis_perception = self.fig.add_subplot(spec[1:3, 2])
+            # self.axis_dvl = self.fig.add_subplot(spec[3:, 2])
+            # self.axis_observation = self.fig.add_subplot(spec[:, 3])
 
         if self.draw_envs and env_configs is not None:
             for i, env_config in enumerate(env_configs):
@@ -553,7 +553,7 @@ class EnvVisualizer:
             rob.update_state(action, current_velocity)
 
         self.plot_robots()
-        self.plot_measurements(robot_idx)
+        # self.plot_measurements(robot_idx)
         # if not self.plot_dist and not self.plot_qvalues:
         #     self.plot_action_and_steer_state(action["action"])
 
@@ -605,7 +605,7 @@ class EnvVisualizer:
         odom_cnt = 0
         while not stop_signal:
             reached = 0
-            if odom_cnt % self.slam_frequency == self.slam_frequency - 1:
+            if odom_cnt % self.slam_frequency == 0:
                 slam_signal = True
             else:
                 slam_signal = False
@@ -690,18 +690,18 @@ class EnvVisualizer:
 
     def visualize_SLAM(self, start_idx=0):
         color_list = ['tab:pink', 'tab:green','tab:red', 'tab:purple',  'tab:orange', 'tab:gray', 'tab:olive']
+        init_x = self.env.robots[0].start[0]
+        init_y = self.env.robots[0].start[1]
         for i in range (self.env.num_cooperative):
-        # for i in range(1):
-            pose, landmark_list = self.landmark_slam.get_robot_trajectory(i, [self.env.robots[0].start[0],
-                                                               self.env.robots[0].start[1],
+            pose = self.landmark_slam.get_robot_trajectory(i, [init_x, init_y,
                                                                self.env.robots[0].init_theta])
             self.axis_graph.plot(pose[:,0],pose[:,1],color=color_list[i], linewidth = 2, zorder=10)
             # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
-            for j, this_landmark_list in enumerate(landmark_list):
-                if this_landmark_list == []:
-                    continue
-                for landmark_obs in this_landmark_list:
-                    self.axis_graph.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
+        landmark_list = self.landmark_slam.get_landmark_list([init_x,                                                                   self.env.robots[0].start[1],
+                                                                init_y,
+                                                                self.env.robots[0].init_theta])
+        for landmark_obs in landmark_list:
+            self.axis_graph.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
 
     def load_env_config(self, episode_dict):
         episode = copy.deepcopy(episode_dict)

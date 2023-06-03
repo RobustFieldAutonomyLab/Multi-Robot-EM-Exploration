@@ -1,4 +1,7 @@
 import sys
+
+import gtsam
+
 sys.path.insert(0,"../")
 import env_visualizer
 from tqdm import tqdm
@@ -27,5 +30,4 @@ if 1:
         ev.navigate_one_step()
     ev.draw_present_position()
     ev.visualize_SLAM()
-
     ev.fig.savefig("test_multi_robot.png",bbox_inches="tight")
