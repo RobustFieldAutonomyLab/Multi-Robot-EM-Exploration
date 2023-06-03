@@ -105,6 +105,7 @@ class LandmarkSLAM:
 
     def get_landmark_list(self, origin):
         landmark_list = []
+        print(origin)
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
         for key in self.result.keys():
             if key < ord('a'):

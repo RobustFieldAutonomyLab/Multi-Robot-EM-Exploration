@@ -33,7 +33,7 @@ def theta_0_to_2pi(theta):
 
 class Odometry:
     def __init__(self, seed=0):
-        max_g_error = 5 / 180 * np.pi  # max gyro error
+        max_g_error = 3 / 180 * np.pi  # max gyro error
         max_a_error = 0.05  # max acceleration error
         max_a_p_error = 0.05  # max acceleration error percentage
         z_score = 1.96  # 95% confidence interval

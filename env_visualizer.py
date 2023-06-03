@@ -12,6 +12,7 @@ import os
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 
+
 class EnvVisualizer:
 
     def __init__(self,
@@ -64,7 +65,6 @@ class EnvVisualizer:
         self.landmark_slam = LandmarkSLAM(seed)
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
-
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -543,7 +543,7 @@ class EnvVisualizer:
         self.axis_qvalues.set_yticklabels(labels=ylabelright, fontsize=14)
         self.axis_qvalues.set_xlim([np.min(q_values) - 5, np.max(q_values) + 5])
 
-    def one_step(self, actions, slam_signal = False, robot_idx=0):
+    def one_step(self, actions, slam_signal=False, robot_idx=0):
         assert len(actions) == len(self.env.robots), "Number of actions not equal number of robots!"
         for i, action in enumerate(actions):
             rob = self.env.robots[i]
@@ -626,7 +626,7 @@ class EnvVisualizer:
                     actions.append(apf.act(observations[i][0]))
             if (reached == self.env.num_cooperative):
                 stop_signal = True
-            self.one_step(actions, slam_signal = slam_signal)
+            self.one_step(actions, slam_signal=slam_signal)
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
@@ -652,9 +652,9 @@ class EnvVisualizer:
                 for j, static_state in enumerate(static_states):
                     rb = self.env.robots[i].landmark_observation.add_noise(static_state[0],
                                                                            static_state[1])
-                    slam_obs_landmark[j,0] = copy.deepcopy(rb[0])
-                    slam_obs_landmark[j,1] = copy.deepcopy(rb[1])
-                    slam_obs_landmark[j,2] = copy.deepcopy(static_state[3])
+                    slam_obs_landmark[j, 0] = copy.deepcopy(rb[0])
+                    slam_obs_landmark[j, 1] = copy.deepcopy(rb[1])
+                    slam_obs_landmark[j, 2] = copy.deepcopy(static_state[3])
             else:
                 slam_obs_landmark = []
             if len(dynamic_states) != 0:
@@ -663,15 +663,14 @@ class EnvVisualizer:
                     xyt = self.env.robots[i].robot_observation.add_noise(dynamic_state[0],
                                                                          dynamic_state[1],
                                                                          dynamic_state[4])
-                    slam_obs_robot[j,0] = copy.deepcopy(xyt[0])
-                    slam_obs_robot[j,1] = copy.deepcopy(xyt[1])
-                    slam_obs_robot[j,2] = copy.deepcopy(xyt[2])
-                    slam_obs_robot[j,3] = copy.deepcopy(dynamic_state[5])
+                    slam_obs_robot[j, 0] = copy.deepcopy(xyt[0])
+                    slam_obs_robot[j, 1] = copy.deepcopy(xyt[1])
+                    slam_obs_robot[j, 2] = copy.deepcopy(xyt[2])
+                    slam_obs_robot[j, 3] = copy.deepcopy(dynamic_state[5])
             else:
                 slam_obs_robot = []
             slam_obs_list[i] = [slam_obs_odom, slam_obs_landmark, slam_obs_robot]
         return slam_obs_list
-
 
     def visualize_navigation(self, start_idx=0):
         # counter for updating distributions plot
@@ -689,17 +688,16 @@ class EnvVisualizer:
             plt.show()
 
     def visualize_SLAM(self, start_idx=0):
-        color_list = ['tab:pink', 'tab:green','tab:red', 'tab:purple',  'tab:orange', 'tab:gray', 'tab:olive']
+        color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
         init_x = self.env.robots[0].start[0]
         init_y = self.env.robots[0].start[1]
-        for i in range (self.env.num_cooperative):
+        for i in range(self.env.num_cooperative):
             pose = self.landmark_slam.get_robot_trajectory(i, [init_x, init_y,
                                                                self.env.robots[0].init_theta])
-            self.axis_graph.plot(pose[:,0],pose[:,1],color=color_list[i], linewidth = 2, zorder=10)
+            self.axis_graph.plot(pose[:, 0], pose[:, 1], color=color_list[i], linewidth=2, zorder=10)
             # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
-        landmark_list = self.landmark_slam.get_landmark_list([init_x,                                                                   self.env.robots[0].start[1],
-                                                                init_y,
-                                                                self.env.robots[0].init_theta])
+        landmark_list = self.landmark_slam.get_landmark_list([init_x, init_y,
+                                                              self.env.robots[0].init_theta])
         for landmark_obs in landmark_list:
             self.axis_graph.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
 
