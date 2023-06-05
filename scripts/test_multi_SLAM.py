@@ -7,7 +7,7 @@ import env_visualizer
 from tqdm import tqdm
 
 
-if 1:
+if 0:
     # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
     ev = env_visualizer.EnvVisualizer(seed = 123)
     ev.init_visualize()
