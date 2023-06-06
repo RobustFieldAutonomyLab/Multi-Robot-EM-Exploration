@@ -11,7 +11,7 @@ import json
 import os
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
-
+from nav.virtualmap import OccupancyMap
 
 class EnvVisualizer:
 
@@ -65,6 +65,8 @@ class EnvVisualizer:
         self.landmark_slam = LandmarkSLAM(seed)
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
+
+        self.occupancy_map = OccupancyMap(0, 0, self.env.width, self.env.height, 1, self.env.robots[0].perception.range)
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -156,6 +158,7 @@ class EnvVisualizer:
             self.fig = plt.figure(figsize=(32, 16))
             spec = self.fig.add_gridspec(5, 4)
             self.axis_graph = self.fig.add_subplot(spec[:, :2])
+            self.axis_grid = self.fig.add_subplot(spec[:, 2:4])
             # self.axis_goal = self.fig.add_subplot(spec[0, 2])
             # self.axis_perception = self.fig.add_subplot(spec[1:3, 2])
             # self.axis_dvl = self.fig.add_subplot(spec[3:, 2])
@@ -168,8 +171,12 @@ class EnvVisualizer:
         else:
             self.plot_graph(self.axis_graph)
 
+    def plot_grid(self, axis):
+        axis.imshow(self.occupancy_map.data, origin='low left', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+                  extent=[self.occupancy_map.minX, self.occupancy_map.maxX,
+                          self.occupancy_map.minY, self.occupancy_map.maxY])
     def plot_graph(self, axis):
-        # plot current velocity in the map
+        # plot current velocity in the mapf
         if self.draw_envs:
             x_pos = list(np.linspace(0.0, self.env.width, 100))
             y_pos = list(np.linspace(0.0, self.env.height, 100))
@@ -615,6 +622,11 @@ class EnvVisualizer:
             if slam_signal:
                 obs_list = self.generate_SLAM_observations(observations)
                 self.landmark_slam.add_one_step(obs_list)
+                slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
+                                                            self.env.robots[0].start[1],
+                                                            self.env.robots[0].init_theta])
+                self.occupancy_map.update(slam_result)
+                self.plot_grid(self.axis_grid)
             odom_cnt += 1
 
             actions = []
@@ -627,6 +639,7 @@ class EnvVisualizer:
             if (reached == self.env.num_cooperative):
                 stop_signal = True
             self.one_step(actions, slam_signal=slam_signal)
+
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):

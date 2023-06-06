@@ -91,16 +91,6 @@ class LandmarkSLAM:
             pose2_list[i, 0] = pose.x()
             pose2_list[i, 1] = pose.y()
             pose2_list[i, 2] = pose.theta()
-        # print("initial: ", self.initial)
-        # print("graph: ", self.graph)
-        # print("result: ", self.result)
-        # landmark_list = copy.deepcopy(self.landmark_list)
-        # for i, landmark_list_this in enumerate(self.landmark_list):
-        #     for j, obs in enumerate(landmark_list_this):
-        #         landmark_list[i][j] = origin_pose.transformFrom(obs)
-
-        # print("landmark_list: ", landmark_list)
-        # return pose2_list, landmark_list
         return pose2_list
 
     def get_landmark_list(self, origin):
@@ -113,6 +103,21 @@ class LandmarkSLAM:
                 if landmark_position is not None:
                     landmark_list.append(origin_pose.transformFrom(landmark_position))
         return landmark_list
+
+    def get_result(self, origin):
+        result = gtsam.Values()
+        origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
+        for key in self.result.keys():
+            if key < ord('a'):
+                landmark_position = self.result.atPoint2(key)
+                if landmark_position is not None:
+                    result.insert(key, origin_pose.transformFrom(landmark_position))
+            else:
+                robot_pose = self.result.atPose2(key)
+                if robot_pose is not None:
+                    result.insert(key, origin_pose.compose(robot_pose))
+        return result
+
 
     def init_SLAM(self, robot_id, obs_robot):
         if robot_id == 0:

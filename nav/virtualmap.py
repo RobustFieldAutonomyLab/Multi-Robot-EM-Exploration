@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import gtsam
-from scipy.spatial import KDTree
+from scipy.spatial.distance import cdist
 
 def prob_to_logodds(p):
     return math.log(p / (1.0 - p))
@@ -16,7 +16,6 @@ LOGODDS_UNKNOWN = prob_to_logodds(0.5)
 LOGODDS_OCCUPIED = prob_to_logodds(0.7)
 MIN_LOGODDS = prob_to_logodds(0.05)
 MAX_LOGODDS = prob_to_logodds(0.95)
-# MAX_LOGODDS = logodds_to_prob(0.95)
 FREE_THRESH = prob_to_logodds(0.5)
 OCCUPIED_THRESH = prob_to_logodds(0.5)
 
@@ -63,22 +62,38 @@ class OccupancyMap:
     def update_landmark(self, point):
         col = int((point[0] - self.minX) / self.cell_size)
         row = int((point[1] - self.minY) / self.cell_size)
-        self.update_grid(col, row)
+        self.update_grid(col, row, False)
 
     def update_robot(self, point):
-        col = int((point[0] - self.minX) / self.cell_size)
-        row = int((point[1] - self.minY) / self.cell_size)
-        radius = math.ceil(self.radius / self.cell_size)
-        min_col = max(col - radius, 0)
-        min_row = max(row - radius, 0)
-        max_col = max(col + radius, self.num_cols)
-        max_row = min(row - radius, self.num_rows)
-        local_data = self.data[min_row:max_row, min_col:max_col]
-#         
-#
-# # Get the map points within the specified radius
-# points_within_radius = map_matrix[indices[:, 0], indices[:, 1]]
+        col = (point[0] - self.minX) / self.cell_size
+        row = (point[1] - self.minY) / self.cell_size
+        col_int = int(col)
+        row_int = int(row)
+        radius = math.ceil(self.radius / self.cell_size) + 1
+        min_col = max(col_int - radius, 0)
+        min_row = max(row_int - radius, 0)
+        max_col = min(col_int + radius, self.num_cols)
+        max_row = min(row_int + radius, self.num_rows)
+        local_mat = self.data[min_row:max_row, min_col:max_col]
+        indices = np.argwhere( ~np.isnan(local_mat) )
+        indices[:,0] += min_row
+        indices[:,1] += min_col
+        indices_float = indices.astype(float)
+        indices_float[:,:] += 0.5
+        distances = cdist(indices_float, np.array([[row, col]]), 'euclidean').flatten()
+        indices_within = np.where(distances < radius)[0]
+        for idx in indices_within:
+            self.update_grid(indices[idx][1], indices[idx][0], False)
 
+    def rest(self):
+        self.data = np.full((self.num_rows, self.num_cols), LOGODDS_UNKNOWN)
+    def update(self, slam_result: gtsam.Values):
+        for key in slam_result.keys():
+            if key < ord('a'):  # landmark case
+                self.update_landmark(slam_result.atPoint2(key))
+            else:  # robot case
+                pose = slam_result.atPose2(key)
+                self.update_robot(np.array([pose.x(), pose.y()]))
 
 
 class VirtualMap:
