@@ -2,6 +2,8 @@ import math
 import numpy as np
 import gtsam
 from scipy.spatial.distance import cdist
+import copy
+
 
 def prob_to_logodds(p):
     return math.log(p / (1.0 - p))
@@ -33,7 +35,7 @@ class VirtualLandmark:
         return np.linalg.inv(self.information)
 
 
-def get_logodds(free :bool):
+def get_logodds(free: bool):
     if free:
         return LOGODDS_FREE
     else:
@@ -41,9 +43,9 @@ def get_logodds(free :bool):
 
 
 class OccupancyMap:
-    def __init__(self, min_x:float, min_y:float,
-                 max_x:float, max_y:float,
-                 cell_size:float, radius: float):
+    def __init__(self, min_x: float, min_y: float,
+                 max_x: float, max_y: float,
+                 cell_size: float, radius: float):
         self.minX = min_x
         self.minY = min_y
         self.maxX = max_x
@@ -56,7 +58,7 @@ class OccupancyMap:
 
     def update_grid(self, col: int, row: int, free: bool):
         logodds = get_logodds(free) + self.data[row, col]
-        logodds = min( MAX_LOGODDS, max(logodds, MIN_LOGODDS))
+        logodds = min(MAX_LOGODDS, max(logodds, MIN_LOGODDS))
         self.data[row, col] = logodds
 
     def update_landmark(self, point):
@@ -75,18 +77,19 @@ class OccupancyMap:
         max_col = min(col_int + radius, self.num_cols)
         max_row = min(row_int + radius, self.num_rows)
         local_mat = self.data[min_row:max_row, min_col:max_col]
-        indices = np.argwhere( ~np.isnan(local_mat) )
-        indices[:,0] += min_row
-        indices[:,1] += min_col
+        indices = np.argwhere(~np.isnan(local_mat))
+        indices[:, 0] += min_row
+        indices[:, 1] += min_col
         indices_float = indices.astype(float)
-        indices_float[:,:] += 0.5
+        indices_float[:, :] += 0.5
         distances = cdist(indices_float, np.array([[row, col]]), 'euclidean').flatten()
         indices_within = np.where(distances < radius)[0]
         for idx in indices_within:
             self.update_grid(indices[idx][1], indices[idx][0], False)
 
-    def rest(self):
+    def reset(self):
         self.data = np.full((self.num_rows, self.num_cols), LOGODDS_UNKNOWN)
+
     def update(self, slam_result: gtsam.Values):
         for key in slam_result.keys():
             if key < ord('a'):  # landmark case
@@ -94,6 +97,13 @@ class OccupancyMap:
             else:  # robot case
                 pose = slam_result.atPose2(key)
                 self.update_robot(np.array([pose.x(), pose.y()]))
+
+    def to_probability(self):
+        data = np.vectorize(logodds_to_prob)(self.data)
+        return data
+
+    def from_probability(self, data):
+        self.data = np.vectorize(prob_to_logodds)(data)
 
 
 class VirtualMap:
@@ -113,21 +123,30 @@ class VirtualMap:
             for j in range(0, self.num_cols):
                 x = j * (self.cell_size + .5) + self.minX
                 y = i * (self.cell_size + .5) + self.minY
-                self.data[i, j] = VirtualLandmark(0.5, x, y)
+                self.data[i, j] = VirtualLandmark(0, x, y)
+
+    def reset(self):
+        self.data[:, :].probability = 0
 
     def update_probability(self, slam_result: gtsam.Values):
-        for key in slam_result.keys():
-            if key < ord('a'):  # landmark case
-                self.update_probability_landmark(slam_result.atPoint2(key))
-            else:  # robot case
-                self.update_probability_robot(slam_result.atPose2(key))
-
-    def update_probability_landmark(self, point):
-        col = int((point[0] - self.minX) / self.cell_size)
-        rows = int((point[1] - self.minY) / self.cell_size)
+        occmap = OccupancyMap(self.minX, self.minY,
+                              self.maxX, self.maxY,
+                              self.cell_size, self.radius)
+        occmap.update(slam_result)
+        self.data[:, :].probability = copy.deepcopy(occmap.to_probability())
 
     def update_probability_robot(self, pose):
-        pass
+        occmap = OccupancyMap(self.minX, self.minY,
+                              self.maxX, self.maxY,
+                              self.cell_size, self.radius)
+        occmap.from_probability(self.data[:, :].probability)
+        occmap.update_robot([np.array([pose.x(), pose.y()])])
+        self.data[:, :].probability = copy.deepcopy(occmap.to_probability())
 
-    def update_probability_data(self, col: int, row: int, free: bool):
-        pass
+    def update_probability_data(self, point):
+        occmap = OccupancyMap(self.minX, self.minY,
+                              self.maxX, self.maxY,
+                              self.cell_size, self.radius)
+        occmap.from_probability(self.data[:, :].probability)
+        occmap.update_landmark(point)
+        self.data[:, :].probability = copy.deepcopy(occmap.to_probability())

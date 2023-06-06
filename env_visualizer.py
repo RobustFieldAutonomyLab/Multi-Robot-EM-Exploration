@@ -66,7 +66,7 @@ class EnvVisualizer:
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
 
-        self.occupancy_map = OccupancyMap(0, 0, self.env.width, self.env.height, 1, self.env.robots[0].perception.range)
+        self.occupancy_map = OccupancyMap(0, 0, self.env.width, self.env.height, 2, self.env.robots[0].perception.range)
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -625,7 +625,9 @@ class EnvVisualizer:
                 slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
                                                             self.env.robots[0].start[1],
                                                             self.env.robots[0].init_theta])
+                self.occupancy_map.reset()
                 self.occupancy_map.update(slam_result)
+                # print(self.occupancy_map.to_probability().shape)
                 self.plot_grid(self.axis_grid)
             odom_cnt += 1
 
