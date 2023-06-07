@@ -29,8 +29,8 @@ class VirtualLandmark:
         self.probability = probability  # probability of being actual landmark
         self.x = x
         self.y = y
-        self.information = np.array([[1 / (self.sigma ** 2), 0], [0, 1 / (self.sigma ** 2)]])
-
+        self.init_information = np.array([[1 / (self.sigma ** 2), 0], [0, 1 / (self.sigma ** 2)]])
+        self.information = copy.deepcopy(self.init_information)
     def covariance(self):
         return np.linalg.inv(self.information)
 
@@ -125,8 +125,11 @@ class VirtualMap:
                 y = i * (self.cell_size + .5) + self.minY
                 self.data[i, j] = VirtualLandmark(0, x, y)
 
-    def reset(self):
+    def reset_probability(self):
         self.data[:, :].probability = 0
+
+    def reset_information(self):
+        self.data[:, :].information = copy.deepcopy(self.data[0,0].init_information)
 
     def update_probability(self, slam_result: gtsam.Values):
         occmap = OccupancyMap(self.minX, self.minY,
@@ -150,3 +153,17 @@ class VirtualMap:
         occmap.from_probability(self.data[:, :].probability)
         occmap.update_landmark(point)
         self.data[:, :].probability = copy.deepcopy(occmap.to_probability())
+
+    def update_information(self, slam_result: gtsam.Values):
+        self.data[:, :].updated = False
+        self.reset_information()
+        for key in slam_result.keys():
+            if key < ord('a'):  # landmark case
+                pass
+            else:  # robot case
+                pose = slam_result.atPose2(key)
+                self.update_information_robot(np.array([pose.x(), pose.y()]))
+
+
+    def find_neighbor_indices(self, position):
+    def update_information_robot(self, position):
