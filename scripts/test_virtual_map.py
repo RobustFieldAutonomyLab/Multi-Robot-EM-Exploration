@@ -15,7 +15,7 @@ if 1:
     # ev.visualize_navigation()
 
     #Do a ten step navigate
-    n = 1
+    n = 10
     for i in tqdm( range (0, n)):
         goals = []
         speed = 20

@@ -1,7 +1,6 @@
 import numpy as np
 import copy
 
-
 class Perception:
 
     def __init__(self, cooperative: bool = False):

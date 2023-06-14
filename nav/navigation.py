@@ -2,12 +2,14 @@ import numpy as np
 import gtsam
 import copy
 
+
 class LandmarkSLAM:
-    def __init__(self, seed: int = 0):
+    def __init__(self):
         # Create a factor graph to hold the constraints
         self.graph = gtsam.NonlinearFactorGraph()
         self.initial = gtsam.Values()
         self.result = gtsam.Values()
+        self.marginals = []
 
         self.idx = []
         # Noise models for the prior
@@ -21,7 +23,8 @@ class LandmarkSLAM:
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
-        #for deugging
+
+        # for deugging
         # self.landmark_list = [[] for _ in range(28)]
 
     def reset_graph(self, num_robot):
@@ -118,7 +121,6 @@ class LandmarkSLAM:
                     result.insert(key, origin_pose.compose(robot_pose))
         return result
 
-
     def init_SLAM(self, robot_id, obs_robot):
         if robot_id == 0:
             self.add_prior(gtsam.symbol(chr(robot_id + ord('a')), 0), gtsam.Pose2(0, 0, 0))
@@ -128,11 +130,12 @@ class LandmarkSLAM:
                 idr = int(obs_r_this[3])
                 if idr == 0:
                     self.add_initial_pose(gtsam.symbol(chr(robot_id + ord('a')), 0),
-                            gtsam.Pose2(0, 0, 0).compose(
-                                gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]).inverse()
-                            ))
+                                          gtsam.Pose2(0, 0, 0).compose(
+                                              gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]).inverse()
+                                          ))
         else:
             raise ValueError("Fail to initialize SLAM graph")
+
     # TODO: add keyframe strategy
     def add_one_step(self, obs_list):
         # obs: obs_odom, obs_landmark, obs_robot
@@ -186,10 +189,10 @@ class LandmarkSLAM:
                                                    gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
                     else:
                         self.add_robot_observation(gtsam.symbol(chr(i + ord('a')), self.idx[i]),
-                                               gtsam.symbol(chr(idr + ord('a')), self.idx[idr]),
-                                               gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
-
+                                                   gtsam.symbol(chr(idr + ord('a')), self.idx[idr]),
+                                                   gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
 
         self.result = self.optimize()
+        self.marginals = gtsam.Marginals(self.graph, self.result)
         # self.result = self.initial
         # print("result: ", result)

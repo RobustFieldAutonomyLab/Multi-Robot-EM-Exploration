@@ -11,7 +11,7 @@ import json
 import os
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
-from nav.virtualmap import OccupancyMap
+from nav.virtualmap import VirtualMap
 
 class EnvVisualizer:
 
@@ -66,7 +66,9 @@ class EnvVisualizer:
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
 
-        self.occupancy_map = OccupancyMap(0, 0, self.env.width, self.env.height, 2, self.env.robots[0].perception.range)
+        param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
+                             "radius": self.env.robots[0].perception.range}
+        self.virtual_map = VirtualMap(param_virtual_map)
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
