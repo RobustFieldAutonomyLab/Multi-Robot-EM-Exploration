@@ -6,6 +6,7 @@ import copy
 from marinenav_env.envs.utils.robot import RangeBearingMeasurement
 from scipy.linalg import cho_factor, cho_solve
 
+
 def prob_to_logodds(p):
     return math.log(p / (1.0 - p))
 
@@ -42,8 +43,8 @@ class VirtualLandmark:
     def update_probability(self, probability):
         self.probability = copy.deepcopy(probability)
 
-    def reset_information(self, information = []):
-        if information == []:
+    def reset_information(self, information=None):
+        if information is None:
             init_information = np.array([[1 / (self.sigma ** 2), 0], [0, 1 / (self.sigma ** 2)]])
             self.information = copy.deepcopy(init_information)
         else:
@@ -60,15 +61,18 @@ class VirtualLandmark:
         c = a * np.trace(cho_solve(cho_factor(I_0), I_1))
         d = a + b - c
         w = 0.5 * (2 * b - c) / d
-        if (w<0 and d<0) or (w>1 and d<0):
+        if (w < 0 and d < 0) or (w > 1 and d < 0):
             w = float(0)
         else:
             w = float(1)
-        self.information = copy.deepcopy( w * I_0 + (1-w) * I_1 )
+        self.information = copy.deepcopy(w * I_0 + (1 - w) * I_1)
 
+    def set_updated(self, signal=None):
+        if signal is None:
+            self.updated = True
+        else:
+            self.updated = signal
 
-    def updated(self):
-        self.updated = True
 
 def get_logodds(free: bool):
     if free:
@@ -111,8 +115,7 @@ class OccupancyMap:
         min_row = max(row_int - radius, 0)
         max_col = min(col_int + radius, self.num_cols)
         max_row = min(row_int + radius, self.num_rows)
-        local_mat = self.data[min_row:max_row, min_col:max_col]
-        indices = np.argwhere(~np.isnan(local_mat))
+        indices = np.indices((max_row - min_row, max_col - min_col)).reshape(2, -1).T
         indices[:, 0] += min_row
         indices[:, 1] += min_col
         indices_float = indices.astype(float)
@@ -141,6 +144,52 @@ class OccupancyMap:
         self.data = np.vectorize(prob_to_logodds)(data)
 
 
+def get_range_pose_point(pose, point):
+    t_ = np.array([pose.x(), pose.y()])
+    d = point - t_
+    r = np.linalg.norm(d)
+    D_r_d = d / r
+
+    c_p = np.cos(pose.theta())
+    s_p = np.sin(pose.theta())
+
+    D_d_pose = np.array([[-c_p, s_p, 0.0],
+                         [-s_p, -c_p, 0.0]])
+    Hpose = np.matmul(D_r_d, D_d_pose)
+    Hpoint = D_r_d
+
+    return r, Hpose, Hpoint
+
+
+def get_bearing_pose_point(pose, point):
+    theta = pose.theta()
+    d, D_d_pose, D_d_point = unrotate(theta, point - pose.translation())
+    result, D_result_d = relative_bearing(theta, d)
+    Hpose = np.matmul(D_result_d, D_d_pose)
+    Hpoint = np.matmul(D_result_d, D_d_point)
+    return result, Hpose, Hpoint
+
+
+def unrotate(theta, p):
+    c = np.cos(theta)
+    s = np.sin(theta)
+    q = np.array([c * p[0] + s * p[1], -s * p[0] + c * p[1]])
+    H1 = np.array([q[1], -q[0]])
+    H2 = np.array([[c, s], [-s, c]])
+    return q, H1, H2
+
+
+def relative_bearing(d):
+    x = d[0]
+    y = d[1]
+    d2 = x ** 2 + y ** 2
+    n = np.sqrt(d2)
+    if np.abs(n) > 1e-5:
+        return gtsam.Rot2.fromCosSin(x / n, y / n).theta(), np.array([-y / d2, x / d2])
+    else:
+        return gtsam.Rot2().theta(), np.array([0, 0])
+
+
 class VirtualMap:
     def __init__(self, parameters):
         self.maxX = parameters["maxX"]
@@ -162,14 +211,14 @@ class VirtualMap:
                 y = i * (self.cell_size + .5) + self.minY
                 self.data[i, j] = VirtualLandmark(0, x, y)
 
-    def reset_probability(self, data = None):
+    def reset_probability(self, data=None):
         if data is None:
-            self.data[:, :].probability = 0
+            np.vectorize(lambda obj, prob: obj.update_probability(prob))(self.data, np.zeros(self.data.shape))
         else:
             np.vectorize(lambda obj, prob: obj.update_probability(prob))(self.data, data)
 
     def reset_information(self):
-        self.data[:, :].information.reset_information()
+        np.vectorize(lambda obj: obj.reset_information())(self.data)
 
     def update_probability(self, slam_result: gtsam.Values):
         occmap = OccupancyMap(self.minX, self.minY,
@@ -196,7 +245,7 @@ class VirtualMap:
         self.reset_probability(occmap.to_probability())
 
     def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals):
-        self.data[:, :].updated = False
+        np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
         for key in slam_result.keys():
             if key < ord('a'):  # landmark case
@@ -215,15 +264,14 @@ class VirtualMap:
         min_row = max(row_int - radius, 0)
         max_col = min(col_int + radius, self.num_cols)
         max_row = min(row_int + radius, self.num_rows)
-        local_mat = self.data[min_row:max_row, min_col:max_col]
-        indices = np.argwhere(~np.isnan(local_mat))
+        indices = np.indices((max_row - min_row, max_col - min_col)).reshape(2, -1).T
         indices[:, 0] += min_row
         indices[:, 1] += min_col
         indices_float = indices.astype(float)
         indices_float[:, :] += 0.5
         distances = cdist(indices_float, np.array([[row, col]]), 'euclidean').flatten()
         indices_within = np.where(distances < radius)[0]
-        return indices_within
+        return indices[indices_within]
 
     def pose_2_point_measurement(self, pose: gtsam.Pose2, point, jacobian: bool):
         sigmas = np.array([[self.range_bearing_model.sigma_b], [self.range_bearing_model.sigma_r]])
@@ -235,12 +283,8 @@ class VirtualMap:
             # range
             # Sigmas 2 by 1
         else:
-            Hx_bearing = np.zeros((1, 3), dtype=float)
-            Hl_bearing = np.zeros((1, 2), dtype=float)
-            Hx_range = np.zeros((1, 3), dtype=float)
-            Hl_range = np.zeros((1, 2), dtype=float)
-            bearing = pose.bearing(point, Hx_bearing, Hl_bearing).theta()
-            range = pose.range(point, Hx_range, Hl_range)
+            bearing, Hx_bearing, Hl_bearing = get_bearing_pose_point(pose, point)
+            range, Hx_range, Hl_range = get_range_pose_point(pose, point)
             # bearing
             # range
             # Sigmas 2 by 1
@@ -252,7 +296,7 @@ class VirtualMap:
 
     def predict_virtual_landmark(self, state: gtsam.Pose2, information_matrix,
                                  virtual_landmark_position):
-        bearing, range, sigmas, Hx, Hl = self.pose_2_point_measurement(state,virtual_landmark_position,True)
+        bearing, range, sigmas, Hx, Hl = self.pose_2_point_measurement(state, virtual_landmark_position, True)
         R = np.diag(np.squeeze(sigmas)) ** 2
         # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
         # cov = Hl_Hl_Hl * [Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
@@ -267,14 +311,14 @@ class VirtualMap:
             if self.data[i, j].probability < 0.49:
                 continue
             info_this = self.predict_virtual_landmark(state, information_matrix,
-                                                      np.array([self.data[i,j].x, self.data[i,j].y]))
-            if self.data[i,j].updated:
-                self.data[i,j].update_information_weighted(info_this)
+                                                      np.array([self.data[i, j].x, self.data[i, j].y]))
+            if self.data[i, j].updated:
+                self.data[i, j].update_information_weighted(info_this)
             else:
-                self.data[i,j].reset_information(info_this)
-                self.data[i,j].updated()
+                self.data[i, j].reset_information(info_this)
+                self.data[i, j].set_updated()
 
-    def update(self, values:gtsam.Values, marginals:gtsam.Marginals = None):
+    def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None):
         self.update_probability(values)
         if marginals is not None:
             self.update_information(values, marginals)
@@ -283,3 +327,5 @@ class VirtualMap:
         probability_matrix = np.vectorize(lambda obj: obj.probability)(self.data)
         return probability_matrix
 
+    def get_virtual_map(self):
+        return self.data

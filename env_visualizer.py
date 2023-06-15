@@ -12,6 +12,8 @@ import os
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
+from nav.virtualmap import VirtualLandmark
+from matplotlib.patches import Ellipse
 
 class EnvVisualizer:
 
@@ -182,6 +184,28 @@ class EnvVisualizer:
                           self.virtual_map.minY, self.virtual_map.maxY])
         self.axis_grid.set_xticks([])
         self.axis_grid.set_yticks([])
+        if information:
+            virtual_map = self.virtual_map.get_virtual_map()
+            for i, map_row in enumerate(virtual_map):
+                for j, virtual_landmark in enumerate(map_row):
+                    self.plot_info_ellipse(np.array([virtual_landmark.x, virtual_landmark.y]),
+                                           virtual_landmark.information, self.axis_grid)
+
+    def eigsorted(self, info):
+        vals, vecs = np.linalg.eigh(info)
+        vals = 1.0 / vals
+        order = vals.argsort()[::-1]
+        return vals[order], vecs[:, order]
+
+    def plot_info_ellipse(self, position, info, axis, nstd=2, **kwargs):
+        vals, vecs = self.eigsorted(info)
+        theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+
+        width, height = 2 * nstd * np.sqrt(vals)
+        ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs)
+
+        axis.add_artist(ellip)
+        return ellip
     def plot_graph(self, axis):
         # plot current velocity in the mapf
         if self.draw_envs:
@@ -632,7 +656,7 @@ class EnvVisualizer:
                 slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
                                                             self.env.robots[0].start[1],
                                                             self.env.robots[0].init_theta])
-                self.virtual_map.update(slam_result)# , self.landmark_slam.get_marginal())
+                self.virtual_map.update(slam_result, self.landmark_slam.get_marginal())
                 if video:
                     self.axis_grid.cla()
                     self.plot_grid(self.axis_grid)

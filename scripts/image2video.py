@@ -8,7 +8,7 @@ if 0:
     image_names = [
     ]
 
-    for i in range(0, 186):
+    for i in range(0, 20):
         image_names.append('test_virtual_map' + str(i) + image_extensions)
 
     images = []
@@ -21,3 +21,13 @@ if 0:
 
     images[0].save(output_file, format="GIF", append_images=images[1:], save_all=True, duration=200, loop=0)
 
+import gtsam
+import numpy as np
+from nav.virtualmap import get_range_pose_point, get_bearing_pose_point
+
+p = gtsam.Pose2(1,4,2.5)
+pt = np.array([3,5])
+print(get_range_pose_point(p, pt))
+print(p.range(pt))
+print(p.bearing(pt))
+print(get_bearing_pose_point(p, pt))

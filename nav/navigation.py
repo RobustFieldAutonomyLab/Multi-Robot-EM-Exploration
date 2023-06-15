@@ -30,7 +30,6 @@ class LandmarkSLAM:
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
-
         # for deugging
         # self.landmark_list = [[] for _ in range(28)]
 
@@ -81,8 +80,8 @@ class LandmarkSLAM:
         self.marginals = gtsam.Marginals(self.isam.getFactorsUnsafe(), self.result)
 
     def get_robot_value_initial(self, robot_id, idx):
-            if self.initial.exists(gtsam.symbol(chr(robot_id + ord('a')), idx)):
-                return self.initial.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
+        if self.initial.exists(gtsam.symbol(chr(robot_id + ord('a')), idx)):
+            return self.initial.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
 
     def get_robot_value_result(self, robot_id, idx):
         if self.result.exists(gtsam.symbol(chr(robot_id + ord('a')), idx)):
@@ -204,6 +203,5 @@ class LandmarkSLAM:
 
         self.optimize()
 
-
     def get_marginal(self):
-        return copy.deepcopy(self.marginals)
+        return self.marginals

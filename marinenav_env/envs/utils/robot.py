@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 
+
 class Perception:
 
     def __init__(self, cooperative: bool = False):
@@ -110,7 +111,7 @@ class RangeBearingMeasurement:
 
     def add_noise(self, x_obs, y_obs):
         r = np.linalg.norm([x_obs, y_obs])
-        b = np.arccos(x_obs / r) # [0, PI]
+        b = np.arccos(x_obs / r)  # [0, PI]
         if y_obs < 0:
             b = 2 * np.pi - b
         r_noise = np.random.normal(0, self.sigma_r)
@@ -142,6 +143,8 @@ class RobotNeighborMeasurement:
         theta_noisy = theta_0_to_2pi(theta_obs + np.clip(b_noise, None, self.max_b_error))
 
         return [x_noisy, y_noisy, theta_noisy]
+
+
 class Robot:
 
     def __init__(self, cooperative: bool = False):
