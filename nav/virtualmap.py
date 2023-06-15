@@ -164,7 +164,7 @@ def get_range_pose_point(pose, point):
 def get_bearing_pose_point(pose, point):
     theta = pose.theta()
     d, D_d_pose, D_d_point = unrotate(theta, point - pose.translation())
-    result, D_result_d = relative_bearing(theta, d)
+    result, D_result_d = relative_bearing(d)
     Hpose = np.matmul(D_result_d, D_d_pose)
     Hpoint = np.matmul(D_result_d, D_d_point)
     return result, Hpose, Hpoint
@@ -174,7 +174,7 @@ def unrotate(theta, p):
     c = np.cos(theta)
     s = np.sin(theta)
     q = np.array([c * p[0] + s * p[1], -s * p[0] + c * p[1]])
-    H1 = np.array([q[1], -q[0]])
+    H1 = np.array([[-1.0, 0.0, q[1]], [0.0, -1.0, -q[0]]])
     H2 = np.array([[c, s], [-s, c]])
     return q, H1, H2
 
@@ -291,8 +291,8 @@ class VirtualMap:
             # Hx_bearing_range 2 by 3
             # Hl_bearing_range 2 by 2
             return [bearing, range, sigmas,
-                    np.concatenate((Hx_bearing, Hx_range), axis=0),
-                    np.concatenate((Hl_bearing, Hl_range), axis=0)]
+                    np.concatenate(([Hx_bearing], [Hx_range]), axis=0),
+                    np.concatenate(([Hl_bearing], [Hl_range]), axis=0)]
 
     def predict_virtual_landmark(self, state: gtsam.Pose2, information_matrix,
                                  virtual_landmark_position):
