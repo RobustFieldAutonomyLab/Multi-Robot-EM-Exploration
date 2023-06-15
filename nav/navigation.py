@@ -10,6 +10,9 @@ class LandmarkSLAM:
         self.initial = gtsam.Values()
         self.result = gtsam.Values()
         self.marginals = []
+        params = gtsam.ISAM2Params()
+        params.setFactorization("QR")
+        self.isam = gtsam.ISAM2(params)
 
         self.idx = []
         # Noise models for the prior
@@ -17,9 +20,13 @@ class LandmarkSLAM:
         # Noise models for the odometry
         self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
         # Noise models for the range bearing measurements
-        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004])
+        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.05])
+        self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
+            gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004]))
         # Noise models for the robot observations
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
+        # self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
+        self.robot_noise_model = gtsam.noiseModel.Robust.Create(
+            gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004]))
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
@@ -64,23 +71,25 @@ class LandmarkSLAM:
             self.initial.insert(idl, landmark)
 
     def optimize(self):
-        optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.initial, self.parameters)
-        result = optimizer.optimize()
-        return result
+        # optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.initial, self.parameters)
+        # result = optimizer.optimize()
+
+        self.isam.update(self.graph, self.initial)
+        self.graph.resize(0)
+        self.initial.clear()
+        self.result = self.isam.calculateEstimate()
+        self.marginals = gtsam.Marginals(self.isam.getFactorsUnsafe(), self.result)
 
     def get_robot_value_initial(self, robot_id, idx):
-        return self.initial.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
+            if self.initial.exists(gtsam.symbol(chr(robot_id + ord('a')), idx)):
+                return self.initial.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
 
     def get_robot_value_result(self, robot_id, idx):
-        if self.result.exists(idx):
+        if self.result.exists(gtsam.symbol(chr(robot_id + ord('a')), idx)):
             return self.result.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
 
     def get_landmark_value_initial(self, idl):
         return self.initial.atPoint2(idl)
-
-    def get_robot_value_optimized(self, robot_id, idx):
-        if self.initial.exists():
-            self.initial.atPose2(gtsam.symbol(chr(robot_id + ord('a')), idx))
 
     def get_symbol(self, robot_id, idx):
         return gtsam.symbol(chr(robot_id + ord('a')), idx)
@@ -98,7 +107,7 @@ class LandmarkSLAM:
 
     def get_landmark_list(self, origin):
         landmark_list = []
-        print(origin)
+        # print(origin)
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
         for key in self.result.keys():
             if key < ord('a'):
@@ -172,7 +181,8 @@ class LandmarkSLAM:
                     # add landmark initial
                     # self.landmark_list[idl].append(initial_pose.transformFrom(
                     #     gtsam.Point2(r * np.cos(b), r * np.sin(b))))
-                    if not self.initial.exists(idl):
+                    initial_pose = self.get_robot_value_initial(i, self.idx[i])
+                    if not (self.initial.exists(idl) or self.result.exists(idl)):
                         self.add_initial_landmark(idl, initial_pose.transformFrom(
                             gtsam.Point2(r * np.cos(b), r * np.sin(b))))
                     # add landmark observation
@@ -192,7 +202,8 @@ class LandmarkSLAM:
                                                    gtsam.symbol(chr(idr + ord('a')), self.idx[idr]),
                                                    gtsam.Pose2(obs_r_this[0], obs_r_this[1], obs_r_this[2]))
 
-        self.result = self.optimize()
-        self.marginals = gtsam.Marginals(self.graph, self.result)
-        # self.result = self.initial
-        # print("result: ", result)
+        self.optimize()
+
+
+    def get_marginal(self):
+        return copy.deepcopy(self.marginals)

@@ -62,13 +62,15 @@ class EnvVisualizer:
 
         self.step = 0
 
-        self.landmark_slam = LandmarkSLAM(seed)
+        self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
                              "radius": self.env.robots[0].perception.range}
         self.virtual_map = VirtualMap(param_virtual_map)
+
+        self.cnt = 0
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -173,10 +175,13 @@ class EnvVisualizer:
         else:
             self.plot_graph(self.axis_graph)
 
-    def plot_grid(self, axis):
-        axis.imshow(self.occupancy_map.data, origin='low left', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
-                  extent=[self.occupancy_map.minX, self.occupancy_map.maxX,
-                          self.occupancy_map.minY, self.occupancy_map.maxY])
+    def plot_grid(self, axis, probability = True, information = False):
+        data = self.virtual_map.get_probability_matrix()
+        axis.imshow(np.ones(data.shape) - data, origin='low left', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+                  extent=[self.virtual_map.minX, self.virtual_map.maxX,
+                          self.virtual_map.minY, self.virtual_map.maxY])
+        self.axis_grid.set_xticks([])
+        self.axis_grid.set_yticks([])
     def plot_graph(self, axis):
         # plot current velocity in the mapf
         if self.draw_envs:
@@ -609,7 +614,7 @@ class EnvVisualizer:
         for robot in self.env.robots:
             self.APF_agents.append(APF_agent(robot.a, robot.w))
 
-    def navigate_one_step(self):
+    def navigate_one_step(self, path, video = False):
         stop_signal = False
         odom_cnt = 0
         while not stop_signal:
@@ -627,10 +632,13 @@ class EnvVisualizer:
                 slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
                                                             self.env.robots[0].start[1],
                                                             self.env.robots[0].init_theta])
-                self.occupancy_map.reset()
-                self.occupancy_map.update(slam_result)
-                # print(self.occupancy_map.to_probability().shape)
-                self.plot_grid(self.axis_grid)
+                self.virtual_map.update(slam_result)# , self.landmark_slam.get_marginal())
+                if video:
+                    self.axis_grid.cla()
+                    self.plot_grid(self.axis_grid)
+                    self.visualize_SLAM()
+                    self.fig.savefig(path + str(self.cnt) + ".png",bbox_inches="tight")
+                    self.cnt += 1
             odom_cnt += 1
 
             actions = []
@@ -711,12 +719,12 @@ class EnvVisualizer:
         for i in range(self.env.num_cooperative):
             pose = self.landmark_slam.get_robot_trajectory(i, [init_x, init_y,
                                                                self.env.robots[0].init_theta])
-            self.axis_graph.plot(pose[:, 0], pose[:, 1], color=color_list[i], linewidth=2, zorder=10)
+            self.axis_grid.plot(pose[:, 0], pose[:, 1], color=color_list[i], linewidth=2, zorder=10)
             # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
         landmark_list = self.landmark_slam.get_landmark_list([init_x, init_y,
                                                               self.env.robots[0].init_theta])
         for landmark_obs in landmark_list:
-            self.axis_graph.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
+            self.axis_grid.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
 
     def load_env_config(self, episode_dict):
         episode = copy.deepcopy(episode_dict)

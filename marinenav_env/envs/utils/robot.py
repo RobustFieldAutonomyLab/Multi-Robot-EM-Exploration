@@ -31,15 +31,15 @@ def theta_0_to_2pi(theta):
 
 
 class Odometry:
-    def __init__(self, seed=0):
-        max_g_error = 3 / 180 * np.pi  # max gyro error
-        max_a_error = 0.05  # max acceleration error
-        max_a_p_error = 0.05  # max acceleration error percentage
+    def __init__(self):
+        self.max_g_error = 2 / 180 * np.pi  # max gyro error
+        self.max_a_error = 0.02  # max acceleration error
+        self.max_a_p_error = 0.02  # max acceleration error percentage
         z_score = 1.96  # 95% confidence interval
 
-        self.sigma_g = max_g_error / z_score
-        self.sigma_a = max_a_error / z_score  # accel noise
-        self.sigma_a_p = max_a_p_error / z_score  # accel noise percentage
+        self.sigma_g = self.max_g_error / z_score
+        self.sigma_a = self.max_a_error / z_score  # accel noise
+        self.sigma_a_p = self.max_a_p_error / z_score  # accel noise percentage
         self.x_old = None
         self.y_old = None
         self.theta_old = None
@@ -83,16 +83,16 @@ class Odometry:
         sigma_a_p = self.sigma_a_p * np.linalg.norm([dx, dy])
         sigma_a = np.min([self.sigma_a, sigma_a_p])
 
+        max_a_p_error = self.max_a_p_error * np.linalg.norm([dx, dy])
+        max_a_error = np.min([max_a_p_error, self.max_a_error])
+
         w_a = np.random.normal(0, sigma_a)
         w_g = np.random.normal(0, self.sigma_g)
 
-        dtheta_noisy = theta_0_to_2pi(dtheta + w_g)
-        dx_noisy = dx + w_a * np.cos(dtheta_noisy)
-        dy_noisy = dy + w_a * np.sin(dtheta_noisy)
+        dtheta_noisy = theta_0_to_2pi(dtheta + np.clip(w_g, None, self.max_g_error))
+        dx_noisy = dx + np.clip(w_a, None, max_a_error) * np.cos(dtheta_noisy)
+        dy_noisy = dy + np.clip(w_a, None, max_a_error) * np.sin(dtheta_noisy)
 
-        # dtheta_noisy = theta_0_to_2pi(dtheta)
-        # dx_noisy = dx
-        # dy_noisy = dy
         self.observation = [dx_noisy, dy_noisy, dtheta_noisy]
 
     def get_odom(self):
@@ -101,44 +101,45 @@ class Odometry:
 
 class RangeBearingMeasurement:
     def __init__(self):
-        max_b_error = 0.5 / 180 * np.pi  # max bearing error
-        max_r_error = 0.1  # max range error
+        self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
+        self.max_r_error = 0.1  # max range error
         z_score = 1.96  # 95% confidence interval
 
-        self.sigma_r = max_r_error / z_score
-        self.sigma_b = max_b_error / z_score
+        self.sigma_r = self.max_r_error / z_score
+        self.sigma_b = self.max_b_error / z_score
 
     def add_noise(self, x_obs, y_obs):
         r = np.linalg.norm([x_obs, y_obs])
         b = np.arccos(x_obs / r) # [0, PI]
         if y_obs < 0:
             b = 2 * np.pi - b
-        r_noisy = r + np.random.normal(0, self.sigma_r)
-        b_noisy = b + np.random.normal(0, self.sigma_b)
+        r_noise = np.random.normal(0, self.sigma_r)
+        r_noise = np.clip(r_noise, None, self.max_r_error)
 
-        # r_noisy = r
-        # b_noisy = b
+        b_noise = np.random.normal(0, self.sigma_b)
+        b_noise = np.clip(b_noise, None, self.max_b_error)
 
-        return [r_noisy, b_noisy]
+        return [r + r_noise, b + b_noise]
 
 
 class RobotNeighborMeasurement:
     def __init__(self):
-        max_b_error = 0.5 / 180 * np.pi  # max bearing error
-        max_r_error = 0.05  # max range error
+        self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
+        self.max_r_error = 0.05  # max range error
         z_score = 1.96  # 95% confidence interval
 
-        self.sigma_r = max_r_error / z_score
-        self.sigma_b = max_b_error / z_score
+        self.sigma_r = self.max_r_error / z_score
+        self.sigma_b = self.max_b_error / z_score
 
     def add_noise(self, x_obs, y_obs, theta_obs):
-        x_noisy = x_obs + np.random.normal(0, self.sigma_r)
-        y_noisy = y_obs + np.random.normal(0, self.sigma_r)
-        theta_noisy = theta_obs + np.random.normal(0, self.sigma_b)
+        x_noise = np.random.normal(0, self.sigma_r)
+        y_noise = np.random.normal(0, self.sigma_r)
 
-        # x_noisy = x_obs
-        # y_noisy = y_obs
-        # theta_noisy = theta_obs
+        b_noise = np.random.normal(0, self.sigma_b)
+
+        x_noisy = x_obs + np.clip(x_noise, None, self.max_r_error)
+        y_noisy = y_obs + np.clip(y_noise, None, self.max_r_error)
+        theta_noisy = theta_0_to_2pi(theta_obs + np.clip(b_noise, None, self.max_b_error))
 
         return [x_noisy, y_noisy, theta_noisy]
 class Robot:

@@ -162,8 +162,11 @@ class VirtualMap:
                 y = i * (self.cell_size + .5) + self.minY
                 self.data[i, j] = VirtualLandmark(0, x, y)
 
-    def reset_probability(self):
-        self.data[:, :].probability = 0
+    def reset_probability(self, data = None):
+        if data is None:
+            self.data[:, :].probability = 0
+        else:
+            np.vectorize(lambda obj, prob: obj.update_probability(prob))(self.data, data)
 
     def reset_information(self):
         self.data[:, :].information.reset_information()
@@ -173,7 +176,7 @@ class VirtualMap:
                               self.maxX, self.maxY,
                               self.cell_size, self.radius)
         occmap.update(slam_result)
-        self.data[:, :].update_probablity(occmap.to_probability())
+        self.reset_probability(occmap.to_probability())
 
     def update_probability_robot(self, pose):
         occmap = OccupancyMap(self.minX, self.minY,
@@ -181,7 +184,8 @@ class VirtualMap:
                               self.cell_size, self.radius)
         occmap.from_probability(self.data[:, :].probability)
         occmap.update_robot([np.array([pose.x(), pose.y()])])
-        self.data[:, :].update_probablity(occmap.to_probability())
+
+        self.reset_probability(occmap.to_probability())
 
     def update_probability_data(self, point):
         occmap = OccupancyMap(self.minX, self.minY,
@@ -189,7 +193,7 @@ class VirtualMap:
                               self.cell_size, self.radius)
         occmap.from_probability(self.data[:, :].probability)
         occmap.update_landmark(point)
-        self.data[:, :].update_probablity(occmap.to_probability())
+        self.reset_probability(occmap.to_probability())
 
     def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals):
         self.data[:, :].updated = False
@@ -269,4 +273,13 @@ class VirtualMap:
             else:
                 self.data[i,j].reset_information(info_this)
                 self.data[i,j].updated()
+
+    def update(self, values:gtsam.Values, marginals:gtsam.Marginals = None):
+        self.update_probability(values)
+        if marginals is not None:
+            self.update_information(values, marginals)
+
+    def get_probability_matrix(self):
+        probability_matrix = np.vectorize(lambda obj: obj.probability)(self.data)
+        return probability_matrix
 
