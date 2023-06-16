@@ -207,8 +207,8 @@ class VirtualMap:
         # Initialize occupancy map with unknown grid
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
-                x = j * (self.cell_size + .5) + self.minX
-                y = i * (self.cell_size + .5) + self.minY
+                x = j * self.cell_size + self.cell_size *.5 + self.minX
+                y = i * self.cell_size + self.cell_size *.5 + self.minY
                 self.data[i, j] = VirtualLandmark(0, x, y)
 
     def reset_probability(self, data=None):
@@ -299,10 +299,10 @@ class VirtualMap:
         bearing, range, sigmas, Hx, Hl = self.pose_2_point_measurement(state, virtual_landmark_position, True)
         R = np.diag(np.squeeze(sigmas)) ** 2
         # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
-        # cov = Hl_Hl_Hl * [Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
+        # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
         Hl_Hl_Hl = np.matmul(np.linalg.inv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
-        cov = np.matmul(Hl_Hl_Hl, R + cho_solve(cho_factor(information_matrix), Hx.transpose()))
-        cov = np.matmul(cov, Hl_Hl_Hl.transpose())
+        A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
+        cov = np.matmul( np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
         return np.linalg.inv(cov)
 
     def update_information_robot(self, state: gtsam.Pose2, information_matrix):

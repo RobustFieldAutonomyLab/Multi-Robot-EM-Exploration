@@ -177,9 +177,9 @@ class EnvVisualizer:
         else:
             self.plot_graph(self.axis_graph)
 
-    def plot_grid(self, axis, probability = True, information = False):
+    def plot_grid(self, axis, probability = True, information = True):
         data = self.virtual_map.get_probability_matrix()
-        axis.imshow(np.ones(data.shape) - data, origin='low left', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+        axis.imshow(np.ones(data.shape) - data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
                   extent=[self.virtual_map.minX, self.virtual_map.maxX,
                           self.virtual_map.minY, self.virtual_map.maxY])
         self.axis_grid.set_xticks([])
@@ -188,7 +188,8 @@ class EnvVisualizer:
             virtual_map = self.virtual_map.get_virtual_map()
             for i, map_row in enumerate(virtual_map):
                 for j, virtual_landmark in enumerate(map_row):
-                    self.plot_info_ellipse(np.array([virtual_landmark.x, virtual_landmark.y]),
+                    self.plot_info_ellipse(np.array([int(virtual_landmark.x+1),
+                                                     int(virtual_landmark.y+1)]),
                                            virtual_landmark.information, self.axis_grid)
 
     def eigsorted(self, info):
@@ -197,7 +198,7 @@ class EnvVisualizer:
         order = vals.argsort()[::-1]
         return vals[order], vecs[:, order]
 
-    def plot_info_ellipse(self, position, info, axis, nstd=2, **kwargs):
+    def plot_info_ellipse(self, position, info, axis, nstd=.2, **kwargs):
         vals, vecs = self.eigsorted(info)
         theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
 
