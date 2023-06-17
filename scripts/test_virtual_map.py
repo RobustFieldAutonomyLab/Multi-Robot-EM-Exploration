@@ -15,7 +15,8 @@ if 1:
     # ev.visualize_navigation()
 
     #Do a ten step navigate
-    n = 5
+    n = 12
+    visualize = True
     for i in tqdm( range (0, n)):
         goals = []
         speed = 20
@@ -28,8 +29,9 @@ if 1:
                           robot.y + speed * direction_this[1]])
         ev.axis_grid.cla()
         ev.reset_goal(goals)
-        ev.navigate_one_step("tmp/test_virtual_map", False)
-        if True:
+        slam_result = ev.navigate_one_step("tmp/test_virtual_map", False)
+        ev.virtual_map.update(slam_result, ev.landmark_slam.get_marginal())
+        if visualize:
             ev.plot_grid(ev.axis_grid)
             ev.visualize_SLAM()
             ev.fig.savefig("tmp/test_virtual_map" + str(i) + ".png",bbox_inches="tight")

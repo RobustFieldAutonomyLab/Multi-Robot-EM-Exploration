@@ -8,7 +8,7 @@ if 1:
     image_names = [
     ]
 
-    for i in range(0, 179):
+    for i in range(0, 12):
         image_names.append('test_virtual_map' + str(i) + image_extensions)
 
     images = []

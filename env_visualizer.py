@@ -71,6 +71,7 @@ class EnvVisualizer:
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
                              "radius": self.env.robots[0].perception.range}
         self.virtual_map = VirtualMap(param_virtual_map)
+        self.slam_result = []
 
         self.cnt = 0
 
@@ -188,9 +189,9 @@ class EnvVisualizer:
             virtual_map = self.virtual_map.get_virtual_map()
             for i, map_row in enumerate(virtual_map):
                 for j, virtual_landmark in enumerate(map_row):
-                    self.plot_info_ellipse(np.array([int(virtual_landmark.x+1),
-                                                     int(virtual_landmark.y+1)]),
-                                           virtual_landmark.information, self.axis_grid)
+                    self.plot_info_ellipse(np.array([virtual_landmark.x,
+                                                     virtual_landmark.y]),
+                                           virtual_landmark.information, self.axis_grid, nstd = self.virtual_map.cell_size * 0.04)
 
     def eigsorted(self, info):
         vals, vecs = np.linalg.eigh(info)
@@ -650,14 +651,13 @@ class EnvVisualizer:
                 slam_signal = False
             # slam_signal = True
             observations = self.env.get_observations()
-
             if slam_signal:
                 obs_list = self.generate_SLAM_observations(observations)
                 self.landmark_slam.add_one_step(obs_list)
-                slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
+                self.slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
                                                             self.env.robots[0].start[1],
                                                             self.env.robots[0].init_theta])
-                self.virtual_map.update(slam_result, self.landmark_slam.get_marginal())
+                # self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
                 if video:
                     self.axis_grid.cla()
                     self.plot_grid(self.axis_grid)
@@ -676,6 +676,7 @@ class EnvVisualizer:
             if (reached == self.env.num_cooperative):
                 stop_signal = True
             self.one_step(actions, slam_signal=slam_signal)
+        return self.slam_result
 
 
     # update robot state and make animation when executing action sequence
