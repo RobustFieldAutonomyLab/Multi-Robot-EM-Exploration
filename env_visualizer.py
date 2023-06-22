@@ -180,7 +180,7 @@ class EnvVisualizer:
 
     def plot_grid(self, axis, probability = True, information = True):
         data = self.virtual_map.get_probability_matrix()
-        axis.imshow(np.ones(data.shape) - data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+        axis.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
                   extent=[self.virtual_map.minX, self.virtual_map.maxX,
                           self.virtual_map.minY, self.virtual_map.maxY])
         self.axis_grid.set_xticks([])

@@ -123,7 +123,7 @@ class OccupancyMap:
         distances = cdist(indices_float, np.array([[row, col]]), 'euclidean').flatten()
         indices_within = np.where(distances < radius)[0]
         for idx in indices_within:
-            self.update_grid(indices[idx][1], indices[idx][0], False)
+            self.update_grid(indices[idx][1], indices[idx][0], True)
 
     def reset(self):
         self.data = np.full((self.num_rows, self.num_cols), LOGODDS_UNKNOWN)
@@ -197,7 +197,7 @@ class VirtualMap:
         self.minX = parameters["minX"]
         self.minY = parameters["minY"]
         self.radius = parameters["radius"]
-        self.cell_size = 2  # cell size for virtual map
+        self.cell_size = 5  # cell size for virtual map
         self.num_cols = int(math.floor((self.maxX - self.minX) / self.cell_size))
         self.num_rows = int(math.floor((self.maxY - self.minY) / self.cell_size))
 
@@ -308,8 +308,8 @@ class VirtualMap:
     def update_information_robot(self, state: gtsam.Pose2, information_matrix):
         indices = self.find_neighbor_indices(np.array([state.x(), state.y()]))
         for [i, j] in indices:
-            if self.data[i, j].probability < 0.49:
-                continue
+            # if self.data[i, j].probability < 0.49:
+            #     continue
             info_this = self.predict_virtual_landmark(state, information_matrix,
                                                       np.array([self.data[i, j].x, self.data[i, j].y]))
             if self.data[i, j].updated:
