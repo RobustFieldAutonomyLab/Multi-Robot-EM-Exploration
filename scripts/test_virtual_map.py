@@ -30,7 +30,7 @@ if 1:
         ev.axis_grid.cla()
         ev.reset_goal(goals)
         slam_result = ev.navigate_one_step("tmp/test_virtual_map", False)
-        ev.virtual_map.update(slam_result, ev.landmark_slam.get_marginal())
+        ev.virtual_map.update(slam_result)#, ev.landmark_slam.get_marginal())
         if visualize:
             ev.plot_grid(ev.axis_grid)
             ev.visualize_SLAM()

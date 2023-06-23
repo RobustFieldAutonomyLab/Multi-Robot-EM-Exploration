@@ -22,3 +22,4 @@ if 1:
     output_file = "output.gif"  # Output file name
 
     images[0].save(output_file, format="GIF", append_images=images[1:], save_all=True, duration=200, loop=0)
+

@@ -6,7 +6,7 @@ class Perception:
 
     def __init__(self, cooperative: bool = False):
         # 2D LiDAR model with detection area as a sector
-        self.range = 15.0  # range of beams (meter)
+        self.range = 10.0  # range of beams (meter)
         self.angle = 2 * np.pi  # detection angle range
         # self.len_obs_history = 0  # the window size of observation history
         self.observation_format(cooperative)

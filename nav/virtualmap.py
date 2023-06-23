@@ -197,7 +197,7 @@ class VirtualMap:
         self.minX = parameters["minX"]
         self.minY = parameters["minY"]
         self.radius = parameters["radius"]
-        self.cell_size = 5  # cell size for virtual map
+        self.cell_size = 2  # cell size for virtual map
         self.num_cols = int(math.floor((self.maxX - self.minX) / self.cell_size))
         self.num_rows = int(math.floor((self.maxY - self.minY) / self.cell_size))
 
@@ -207,9 +207,17 @@ class VirtualMap:
         # Initialize occupancy map with unknown grid
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
-                x = j * self.cell_size + self.cell_size *.5 + self.minX
-                y = i * self.cell_size + self.cell_size *.5 + self.minY
+                x = j * self.cell_size + self.cell_size * .5 + self.minX
+                y = i * self.cell_size + self.cell_size * .5 + self.minY
                 self.data[i, j] = VirtualLandmark(0, x, y)
+
+    def get_parameters(self):
+        param = {}
+        param["maxX"] = self.maxX
+        param["minX"] = self.minX
+        param["maxY"] = self.maxY
+        param["minY"] = self.minY
+        param["cell size"] = self.cell_size
 
     def reset_probability(self, data=None):
         if data is None:
