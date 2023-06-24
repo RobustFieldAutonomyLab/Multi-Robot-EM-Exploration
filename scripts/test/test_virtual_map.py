@@ -2,7 +2,7 @@ import sys
 
 import gtsam
 
-sys.path.insert(0,"../")
+sys.path.insert(0,"../../")
 import env_visualizer
 from tqdm import tqdm
 

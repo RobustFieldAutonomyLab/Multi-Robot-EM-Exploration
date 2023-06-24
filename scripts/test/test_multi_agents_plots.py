@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0,"../")
+sys.path.insert(0,"../../")
 import env_visualizer
 
 # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)

@@ -1,7 +1,7 @@
 from PIL import Image
 import os
 
-if 1:
+if 0:
     folder_path = 'tmp/'  # Path to the folder containing the images
     image_extensions = '.png'  # List of valid image file extensions
 
@@ -22,4 +22,3 @@ if 1:
     output_file = "output.gif"  # Output file name
 
     images[0].save(output_file, format="GIF", append_images=images[1:], save_all=True, duration=200, loop=0)
-

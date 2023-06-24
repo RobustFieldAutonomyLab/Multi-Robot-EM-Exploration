@@ -51,7 +51,7 @@ class MarineNavEnv2():
         self.goal_reward = 100.0
         self.discount = 0.99
         self.num_cores = 0 # number of vortices
-        self.num_obs = 50 # number of static obstacles
+        self.num_obs = 60 # number of static obstacles
         self.min_start_goal_dis = 30.0
         self.num_cooperative = 3 # number of cooperative robots
         self.num_non_cooperative = 0 # number of non-cooperative robots
@@ -108,12 +108,12 @@ class MarineNavEnv2():
         ##### generate robots with randomly generated start and goal 
         num_robots = 0
         iteration = 500
-        start_center = self.rd.uniform(low = 7.0*np.ones(2), high = np.array([self.width-7.0,self.height-7.0]))
-        goal_center = self.rd.uniform(low = 7.0*np.ones(2), high = np.array([self.width-7.0,self.height-7.0]))
+        start_center = self.rd.uniform(low = 5.0*np.ones(2), high = np.array([self.width-5.0,self.height-5.0]))
+        goal_center = self.rd.uniform(low = 5.0*np.ones(2), high = np.array([self.width-5.0,self.height-5.0]))
 
         while True:
-            start = self.rd.uniform(low = start_center - np.array([7.0, 7.0]), high = start_center + np.array([7.0, 7.0]))
-            goal  = self.rd.uniform(low = goal_center - np.array([7.0, 7.0]), high = goal_center + np.array([7.0, 7.0]))
+            start = self.rd.uniform(low = start_center - np.array([5.0, 5.0]), high = start_center + np.array([5.0, 5.0]))
+            goal  = self.rd.uniform(low = goal_center - np.array([5.0, 5.0]), high = goal_center + np.array([5.0, 5.0]))
             iteration -= 1
             if self.check_start_and_goal(start,goal):
                 rob = robot.Robot(robot_types[num_robots])
