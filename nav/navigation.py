@@ -105,6 +105,7 @@ class LandmarkSLAM:
         return pose2_list
 
     def get_landmark_list(self, origin):
+        # return: [[id, x, y], ...]
         landmark_list = []
         # print(origin)
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
@@ -112,7 +113,8 @@ class LandmarkSLAM:
             if key < ord('a'):
                 landmark_position = self.result.atPoint2(key)
                 if landmark_position is not None:
-                    landmark_list.append(origin_pose.transformFrom(landmark_position))
+                    position_this = origin_pose.transformFrom(landmark_position)
+                    landmark_list.append([key, position_this[0], position_this[1]])
         return landmark_list
 
     def get_result(self, origin):
@@ -128,6 +130,16 @@ class LandmarkSLAM:
                 if robot_pose is not None:
                     result.insert(key, origin_pose.compose(robot_pose))
         return result
+
+    def get_latest_state(self, origin):
+        state_list = [[] for _ in range(len(self.idx))]
+        origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
+        for i, key_int in enumerate(self.idx):
+            key = self.get_symbol(i, key_int)
+            pose = self.result.atPose2(key)
+            state_list[i] = origin_pose.compose(pose)
+        return state_list
+
 
     def init_SLAM(self, robot_id, obs_robot):
         if robot_id == 0:

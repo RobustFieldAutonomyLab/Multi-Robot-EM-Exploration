@@ -212,12 +212,9 @@ class VirtualMap:
                 self.data[i, j] = VirtualLandmark(0, x, y)
 
     def get_parameters(self):
-        param = {}
-        param["maxX"] = self.maxX
-        param["minX"] = self.minX
-        param["maxY"] = self.maxY
-        param["minY"] = self.minY
-        param["cell size"] = self.cell_size
+        param = {"maxX": self.maxX, "minX": self.minX, "maxY": self.maxY, "minY": self.minY,
+                 "cell_size": self.cell_size}
+        return param
 
     def reset_probability(self, data=None):
         if data is None:
@@ -310,7 +307,7 @@ class VirtualMap:
         # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
         Hl_Hl_Hl = np.matmul(np.linalg.inv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
         A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
-        cov = np.matmul( np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
+        cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
         return np.linalg.inv(cov)
 
     def update_information_robot(self, state: gtsam.Pose2, information_matrix):

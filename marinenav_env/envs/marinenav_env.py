@@ -5,72 +5,73 @@ import marinenav_env.envs.utils.robot as robot
 import json
 import copy
 
+
 class Core:
 
-    def __init__(self, x:float, y:float, clockwise:bool, Gamma:float):
-
-        self.x = x  # x coordinate of the vortex core  
+    def __init__(self, x: float, y: float, clockwise: bool, Gamma: float):
+        self.x = x  # x coordinate of the vortex core
         self.y = y  # y coordinate of the vortex core
-        self.clockwise = clockwise # if the vortex direction is clockwise
+        self.clockwise = clockwise  # if the vortex direction is clockwise
         self.Gamma = Gamma  # circulation strength of the vortex core
+
 
 class Obstacle:
 
-    def __init__(self, x:float, y:float, r:float):
+    def __init__(self, x: float, y: float, r: float):
+        self.x = x  # x coordinate of the obstacle center
+        self.y = y  # y coordinate of the obstacle center
+        self.r = r  # radius of the obstacle
 
-        self.x = x # x coordinate of the obstacle center
-        self.y = y # y coordinate of the obstacle center
-        self.r = r # radius of the obstacle    
 
 # class MarineNavEnv2(gym.Env):
-class MarineNavEnv2():
-    def __init__(self, seed:int=0, schedule:dict=None):
+class MarineNavEnv2:
+    def __init__(self, seed: int = 0, schedule: dict = None):
 
         self.sd = seed
-        self.rd = np.random.RandomState(seed) # PRNG 
+        self.rd = np.random.RandomState(seed)  # PRNG
 
         # Define action space and observation space for gym
         # self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
-        
+
         # parameter initialization
-        self.width = 200 # x coordinate dimension of the map
-        self.height = 200 # y coordinate dimension of the map
+        self.width = 200  # x coordinate dimension of the map
+        self.height = 200  # y coordinate dimension of the map
         self.r = 0.5  # radius of vortex core
-        self.v_rel_max = 1.0 # max allowable speed when two currents flowing towards each other
-        self.p = 0.8 # max allowable relative speed at another vortex core
-        self.v_range = [5,10] # speed range of the vortex (at the edge of core)
-        self.obs_r_range = [1,1] # radius range of the obstacle
-        self.clear_r = 5.0 # radius of area centered at the start(goal) of each robot,
-                           # where no vortex cores, static obstacles, or the start(goal) of other robots exist
-        self.reset_start_and_goal = True # if the start and goal position be set randomly in reset()
-        self.start = np.array([5.0,5.0]) # robot start position
-        self.goal = np.array([45.0,45.0]) # goal position
-        self.goal_dis = 2.0 # max distance to goal considered as reached
+        self.v_rel_max = 1.0  # max allowable speed when two currents flowing towards each other
+        self.p = 0.8  # max allowable relative speed at another vortex core
+        self.v_range = [5, 10]  # speed range of the vortex (at the edge of core)
+        self.obs_r_range = [1, 1]  # radius range of the obstacle
+        self.clear_r = 5.0  # radius of area centered at the start(goal) of each robot,
+        # where no vortex cores, static obstacles, or the start(goal) of other robots exist
+        self.reset_start_and_goal = True  # if the start and goal position be set randomly in reset()
+        self.start = np.array([5.0, 5.0])  # robot start position
+        self.goal = np.array([45.0, 45.0])  # goal position
+        self.goal_dis = 2.0  # max distance to goal considered as reached
         self.timestep_penalty = -1.0
         self.collision_penalty = -50.0
         self.goal_reward = 100.0
         self.discount = 0.99
-        self.num_cores = 0 # number of vortices
-        self.num_obs = 60 # number of static obstacles
-        self.min_start_goal_dis = 30.0
-        self.num_cooperative = 3 # number of cooperative robots
-        self.num_non_cooperative = 0 # number of non-cooperative robots
+        self.num_cores = 0  # number of vortices
+        self.num_obs = 60  # number of static obstacles
+        self.min_start_goal_dis = 2.0
+        self.num_cooperative = 3  # number of cooperative robots
+        self.num_non_cooperative = 0  # number of non-cooperative robots
 
-        self.robots = [] # list of robots
+        self.robots = []  # list of robots
         for _ in range(self.num_cooperative):
             self.robots.append(robot.Robot(cooperative=True))
         for _ in range(self.num_non_cooperative):
             self.robots.append(robot.Robot(cooperative=False))
-        
-        self.cores = [] # list of vortex cores
-        self.obstacles = [] # list of static obstacles
 
-        self.schedule = schedule # schedule for curriculum learning
-        self.episode_timesteps = 0 # current episode timesteps
-        self.total_timesteps = 0 # learning timesteps
+        self.cores = []  # list of vortex cores
+        self.obstacles = []  # list of static obstacles
 
-        self.set_boundary = False # set boundary of environment
-    
+        self.schedule = schedule  # schedule for curriculum learning
+        self.episode_timesteps = 0  # current episode timesteps
+        self.total_timesteps = 0  # learning timesteps
+
+        self.set_boundary = False  # set boundary of environment
+
     def get_action_space_dimension(self):
         return self.robot.compute_actions_dimension()
 
@@ -80,20 +81,20 @@ class MarineNavEnv2():
         if self.schedule is not None:
             steps = self.schedule["timesteps"]
             diffs = np.array(steps) - self.total_timesteps
-            
+
             # find the interval the current timestep falls into
-            idx = len(diffs[diffs<=0])-1
+            idx = len(diffs[diffs <= 0]) - 1
 
             self.num_cores = self.schedule["num_cores"][idx]
             self.num_obs = self.schedule["num_obstacles"][idx]
             self.min_start_goal_dis = self.schedule["min_start_goal_dis"][idx]
 
             print("======== training env setup ========")
-            print("num of cores: ",self.num_cores)
-            print("num of obstacles: ",self.num_obs)
-            print("min start goal dis: ",self.min_start_goal_dis)
-            print("======== training env setup ========\n") 
-        
+            print("num of cores: ", self.num_cores)
+            print("num of obstacles: ", self.num_obs)
+            print("min start goal dis: ", self.min_start_goal_dis)
+            print("======== training env setup ========\n")
+
         self.episode_timesteps = 0
 
         self.cores.clear()
@@ -102,20 +103,21 @@ class MarineNavEnv2():
 
         num_cores = self.num_cores
         num_obs = self.num_obs
-        robot_types = [True]*self.num_cooperative + [False]*self.num_non_cooperative
+        robot_types = [True] * self.num_cooperative + [False] * self.num_non_cooperative
         assert len(robot_types) > 0, "Number of robots is 0!"
 
         ##### generate robots with randomly generated start and goal 
         num_robots = 0
         iteration = 500
-        start_center = self.rd.uniform(low = 5.0*np.ones(2), high = np.array([self.width-5.0,self.height-5.0]))
-        goal_center = self.rd.uniform(low = 5.0*np.ones(2), high = np.array([self.width-5.0,self.height-5.0]))
+        start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
+        # goal_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
 
         while True:
-            start = self.rd.uniform(low = start_center - np.array([5.0, 5.0]), high = start_center + np.array([5.0, 5.0]))
-            goal  = self.rd.uniform(low = goal_center - np.array([5.0, 5.0]), high = goal_center + np.array([5.0, 5.0]))
+            start = self.rd.uniform(low=start_center - np.array([5.0, 5.0]), high=start_center + np.array([5.0, 5.0]))
+            # goal = self.rd.uniform(low=goal_center - np.array([5.0, 5.0]), high=goal_center + np.array([5.0, 5.0]))
+            goal = self.rd.uniform(low=start - np.array([4.0, 4.0]), high=start - np.array([2.0, 2.0]))
             iteration -= 1
-            if self.check_start_and_goal(start,goal):
+            if self.check_start_and_goal(start, goal):
                 rob = robot.Robot(robot_types[num_robots])
                 rob.start = start
                 rob.goal = goal
@@ -129,26 +131,26 @@ class MarineNavEnv2():
         if num_cores > 0:
             iteration = 500
             while True:
-                center = self.rd.uniform(low = np.zeros(2), high = np.array([self.width,self.height]))
-                direction = self.rd.binomial(1,0.5)
-                v_edge = self.rd.uniform(low = self.v_range[0], high = self.v_range[1])
+                center = self.rd.uniform(low=np.zeros(2), high=np.array([self.width, self.height]))
+                direction = self.rd.binomial(1, 0.5)
+                v_edge = self.rd.uniform(low=self.v_range[0], high=self.v_range[1])
                 Gamma = 2 * np.pi * self.r * v_edge
-                core = Core(center[0],center[1],direction,Gamma)
+                core = Core(center[0], center[1], direction, Gamma)
                 iteration -= 1
                 if self.check_core(core):
                     self.cores.append(core)
                     num_cores -= 1
                 if iteration == 0 or num_cores == 0:
                     break
-        
+
         centers = None
         for core in self.cores:
             if centers is None:
-                centers = np.array([[core.x,core.y]])
+                centers = np.array([[core.x, core.y]])
             else:
-                c = np.array([[core.x,core.y]])
-                centers = np.vstack((centers,c))
-        
+                c = np.array([[core.x, core.y]])
+                centers = np.vstack((centers, c))
+
         # KDTree storing vortex core center positions
         if centers is not None:
             self.core_centers = scipy.spatial.KDTree(centers)
@@ -157,24 +159,24 @@ class MarineNavEnv2():
         if num_obs > 0:
             iteration = 500
             while True:
-                center = self.rd.uniform(low = 5.0*np.ones(2), high = np.array([self.width-5.0,self.height-5.0]))
-                r = self.rd.uniform(low = self.obs_r_range[0], high = self.obs_r_range[1])
-                obs = Obstacle(center[0],center[1],r)
+                center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
+                r = self.rd.uniform(low=self.obs_r_range[0], high=self.obs_r_range[1])
+                obs = Obstacle(center[0], center[1], r)
                 iteration -= 1
                 if self.check_obstacle(obs):
                     self.obstacles.append(obs)
                     num_obs -= 1
                 if iteration == 0 or num_obs == 0:
                     break
-        
+
         # TODO: check get_observations
         # return self.get_observations()
 
-    def reset_robot(self,rob):
+    def reset_robot(self, rob):
         # reset robot state
-        rob.init_theta = self.rd.uniform(low = 0.0, high = 2*np.pi)
-        rob.init_speed = self.rd.uniform(low = 0.0, high = rob.max_speed)
-        current_v = self.get_velocity(rob.start[0],rob.start[1])
+        rob.init_theta = self.rd.uniform(low=0.0, high=2 * np.pi)
+        rob.init_speed = self.rd.uniform(low=0.0, high=rob.max_speed)
+        current_v = self.get_velocity(rob.start[0], rob.start[1])
         rob.reset_state(current_velocity=current_v)
 
     def reset_goal(self, goal_list):
@@ -185,11 +187,11 @@ class MarineNavEnv2():
         # TODO: rewrite step function to update state of all robots, generate corresponding observations and rewards
         # execute action, update the environment, and return (obs, reward, done)
 
-        rewards = [0]*len(self.robots)
+        rewards = [0] * len(self.robots)
 
         assert len(actions) == len(self.robots), "Number of actions not equal number of robots!"
         # Execute actions for all robots
-        for i,action in enumerate(actions):
+        for i, action in enumerate(actions):
             rob = self.robots[i]
             # save action to history
             rob.action_history.append(action)
@@ -199,9 +201,9 @@ class MarineNavEnv2():
             # update robot state after executing the action    
             for _ in range(rob.N):
                 current_velocity = self.get_velocity(rob.x, rob.y)
-                rob.update_state(action,current_velocity)
+                rob.update_state(action, current_velocity)
                 # save trajectory
-                rob.trajectory.append([rob.x,rob.y])
+                rob.trajectory.append([rob.x, rob.y])
 
             dis_after = rob.dist_to_goal()
 
@@ -210,13 +212,12 @@ class MarineNavEnv2():
 
             # reward agent for getting closer to the goal
             rewards[i] += dis_before - dis_after
-        
 
         # Get observation for all robots
         observations = self.get_observations()
 
-        dones = [True]*len(self.robots)
-        infos = [{"state":"normal"}]*len(self.robots)
+        dones = [True] * len(self.robots)
+        infos = [{"state": "normal"}] * len(self.robots)
 
         # TODO: rewrite the reward and function: 
         # (1) if any collision happens, end the current episode
@@ -256,46 +257,46 @@ class MarineNavEnv2():
     def get_observations(self):
         observations = []
         for robot in self.robots:
-            observations.append(robot.perception_output(self.obstacles,self.robots))
+            observations.append(robot.perception_output(self.obstacles, self.robots))
         return observations
 
     def check_collision(self):
         if len(self.obstacles) == 0:
             return False
-        
+
         for obs in self.obstacles:
-            d = np.sqrt((self.robot.x-obs.x)**2+(self.robot.y-obs.y)**2)
+            d = np.sqrt((self.robot.x - obs.x) ** 2 + (self.robot.y - obs.y) ** 2)
             if d <= obs.r + self.robot.r:
                 return True
         return False
 
     def check_reach_goal(self):
-        dis = np.array([self.robot.x,self.robot.y]) - self.goal
+        dis = np.array([self.robot.x, self.robot.y]) - self.goal
         if np.linalg.norm(dis) <= self.goal_dis:
             return True
         return False
-    
-    def check_start_and_goal(self,start,goal):
-        
+
+    def check_start_and_goal(self, start, goal):
+
         # The start and goal point is far enough
-        if np.linalg.norm(goal-start) < self.min_start_goal_dis:
+        if np.linalg.norm(goal - start) < self.min_start_goal_dis:
             return False
-        
+
         for robot in self.robots:
-            
+
             dis_s = robot.start - start
             # Start point not too close to that of existing robots
             if np.linalg.norm(dis_s) <= self.clear_r:
                 return False
-            
+
             dis_g = robot.goal - goal
             # Goal point not too close to that of existing robots
             if np.linalg.norm(dis_g) <= self.clear_r:
                 return False
-        
+
         return True
-    
-    def check_core(self,core_j):
+
+    def check_core(self, core_j):
 
         # Within the range of the map
         if core_j.x - self.r < 0.0 or core_j.x + self.r > self.width:
@@ -305,7 +306,7 @@ class MarineNavEnv2():
 
         for robot in self.robots:
             # Not too close to start and goal point of each robot
-            core_pos = np.array([core_j.x,core_j.y])
+            core_pos = np.array([core_j.x, core_j.y])
             dis_s = core_pos - robot.start
             if np.linalg.norm(dis_s) < self.r + self.clear_r:
                 return False
@@ -316,13 +317,13 @@ class MarineNavEnv2():
         for core_i in self.cores:
             dx = core_i.x - core_j.x
             dy = core_i.y - core_j.y
-            dis = np.sqrt(dx*dx+dy*dy)
+            dis = np.sqrt(dx * dx + dy * dy)
 
             if core_i.clockwise == core_j.clockwise:
                 # i and j rotate in the same direction, their currents run towards each other at boundary
                 # The currents speed at boundary need to be lower than threshold  
-                boundary_i = core_i.Gamma / (2*np.pi*self.v_rel_max)
-                boundary_j = core_j.Gamma / (2*np.pi*self.v_rel_max)
+                boundary_i = core_i.Gamma / (2 * np.pi * self.v_rel_max)
+                boundary_j = core_j.Gamma / (2 * np.pi * self.v_rel_max)
                 if dis < boundary_i + boundary_j:
                     return False
             else:
@@ -330,14 +331,14 @@ class MarineNavEnv2():
                 # The relative current speed of the stronger vortex at boundary need to be lower than threshold 
                 Gamma_l = max(core_i.Gamma, core_j.Gamma)
                 Gamma_s = min(core_i.Gamma, core_j.Gamma)
-                v_1 = Gamma_l / (2*np.pi*(dis-2*self.r))
-                v_2 = Gamma_s / (2*np.pi*self.r)
+                v_1 = Gamma_l / (2 * np.pi * (dis - 2 * self.r))
+                v_2 = Gamma_s / (2 * np.pi * self.r)
                 if v_1 > self.p * v_2:
                     return False
 
         return True
 
-    def check_obstacle(self,obs):
+    def check_obstacle(self, obs):
 
         # Within the range of the map
         if obs.x - obs.r < 0.0 or obs.x + obs.r > self.width:
@@ -347,7 +348,7 @@ class MarineNavEnv2():
 
         for robot in self.robots:
             # Not too close to start and goal point
-            obs_pos = np.array([obs.x,obs.y])
+            obs_pos = np.array([obs.x, obs.y])
             dis_s = obs_pos - robot.start
             if np.linalg.norm(dis_s) < obs.r + self.clear_r:
                 return False
@@ -359,70 +360,70 @@ class MarineNavEnv2():
         for core in self.cores:
             dx = core.x - obs.x
             dy = core.y - obs.y
-            dis = np.sqrt(dx*dx + dy*dy)
+            dis = np.sqrt(dx * dx + dy * dy)
 
             if dis <= self.r + obs.r:
                 return False
-        
+
         # Not collide with other obstacles
         for obstacle in self.obstacles:
             dx = obstacle.x - obs.x
             dy = obstacle.y - obs.y
-            dis = np.sqrt(dx*dx + dy*dy)
+            dis = np.sqrt(dx * dx + dy * dy)
 
             if dis <= obstacle.r + obs.r:
                 return False
-        
+
         return True
 
-    def get_velocity(self,x:float, y:float):
+    def get_velocity(self, x: float, y: float):
         if len(self.cores) == 0:
             return np.zeros(2)
-        
+
         # sort the vortices according to their distance to the query point
-        d, idx = self.core_centers.query(np.array([x,y]),k=len(self.cores))
-        if isinstance(idx,np.int64):
+        d, idx = self.core_centers.query(np.array([x, y]), k=len(self.cores))
+        if isinstance(idx, np.int64):
             idx = [idx]
 
         v_radial_set = []
-        v_velocity = np.zeros((2,1))
-        for i in list(idx): 
+        v_velocity = np.zeros((2, 1))
+        for i in list(idx):
             core = self.cores[i]
-            v_radial = np.matrix([[core.x-x],[core.y-y]])
+            v_radial = np.matrix([[core.x - x], [core.y - y]])
 
             for v in v_radial_set:
                 project = np.transpose(v) * v_radial
-                if project[0,0] > 0:
+                if project[0, 0] > 0:
                     # if the core is in the outter area of a checked core (wrt the query position),
                     # assume that it has no influence the velocity of the query position
                     continue
-            
+
             v_radial_set.append(v_radial)
             dis = np.linalg.norm(v_radial)
             v_radial /= dis
             if core.clockwise:
-                rotation = np.matrix([[0., -1.],[1., 0]])
+                rotation = np.matrix([[0., -1.], [1., 0]])
             else:
-                rotation = np.matrix([[0., 1.],[-1., 0]])
+                rotation = np.matrix([[0., 1.], [-1., 0]])
             v_tangent = rotation * v_radial
-            speed = self.compute_speed(core.Gamma,dis)
+            speed = self.compute_speed(core.Gamma, dis)
             v_velocity += v_tangent * speed
-        
-        return np.array([v_velocity[0,0], v_velocity[1,0]])
 
-    def get_velocity_test(self,x:float, y:float):
+        return np.array([v_velocity[0, 0], v_velocity[1, 0]])
+
+    def get_velocity_test(self, x: float, y: float):
         v = np.ones(2)
         return v / np.linalg.norm(v)
 
-    def compute_speed(self, Gamma:float, d:float):
+    def compute_speed(self, Gamma: float, d: float):
         if d <= self.r:
-            return Gamma / (2*np.pi*self.r*self.r) * d
+            return Gamma / (2 * np.pi * self.r * self.r) * d
         else:
-            return Gamma / (2*np.pi*d)
+            return Gamma / (2 * np.pi * d)
 
-    def reset_with_eval_config(self,eval_config):
+    def reset_with_eval_config(self, eval_config):
         self.episode_timesteps = 0
-        
+
         # load env config
         self.sd = eval_config["env"]["seed"]
         self.width = eval_config["env"]["width"]
@@ -448,14 +449,14 @@ class MarineNavEnv2():
             center = eval_config["env"]["cores"]["positions"][i]
             clockwise = eval_config["env"]["cores"]["clockwise"][i]
             Gamma = eval_config["env"]["cores"]["Gamma"][i]
-            core = Core(center[0],center[1],clockwise,Gamma)
+            core = Core(center[0], center[1], clockwise, Gamma)
             self.cores.append(core)
             if centers is None:
-                centers = np.array([[core.x,core.y]])
+                centers = np.array([[core.x, core.y]])
             else:
-                c = np.array([[core.x,core.y]])
-                centers = np.vstack((centers,c))
-        
+                c = np.array([[core.x, core.y]])
+                centers = np.vstack((centers, c))
+
         if centers is not None:
             self.core_centers = scipy.spatial.KDTree(centers)
 
@@ -464,9 +465,8 @@ class MarineNavEnv2():
         for i in range(len(eval_config["env"]["obstacles"]["positions"])):
             center = eval_config["env"]["obstacles"]["positions"][i]
             r = eval_config["env"]["obstacles"]["r"][i]
-            obs = Obstacle(center[0],center[1],r)
+            obs = Obstacle(center[0], center[1], r)
             self.obstacles.append(obs)
-
 
         # load robot config
         self.robot.dt = eval_config["robot"]["dt"]
@@ -495,10 +495,10 @@ class MarineNavEnv2():
         #                                             dtype = np.float32)
 
         # reset robot state
-        current_v = self.get_velocity(self.start[0],self.start[1])
-        self.robot.reset_state(self.start[0],self.start[1], current_velocity=current_v)
+        current_v = self.get_velocity(self.start[0], self.start[1])
+        self.robot.reset_state(self.start[0], self.start[1], current_velocity=current_v)
 
-        return self.get_observation()          
+        return self.get_observation()
 
     def episode_data(self):
         episode = {}
@@ -511,7 +511,7 @@ class MarineNavEnv2():
         episode["env"]["r"] = self.r
         episode["env"]["v_rel_max"] = self.v_rel_max
         episode["env"]["p"] = self.p
-        episode["env"]["v_range"] = copy.deepcopy(self.v_range) 
+        episode["env"]["v_range"] = copy.deepcopy(self.v_range)
         episode["env"]["obs_r_range"] = copy.deepcopy(self.obs_r_range)
         episode["env"]["clear_r"] = self.clear_r
         episode["env"]["start"] = list(self.start)
@@ -530,7 +530,7 @@ class MarineNavEnv2():
         episode["env"]["cores"]["clockwise"] = []
         episode["env"]["cores"]["Gamma"] = []
         for core in self.cores:
-            episode["env"]["cores"]["positions"].append([core.x,core.y])
+            episode["env"]["cores"]["positions"].append([core.x, core.y])
             episode["env"]["cores"]["clockwise"].append(core.clockwise)
             episode["env"]["cores"]["Gamma"].append(core.Gamma)
 
@@ -539,7 +539,7 @@ class MarineNavEnv2():
         episode["env"]["obstacles"]["positions"] = []
         episode["env"]["obstacles"]["r"] = []
         for obs in self.obstacles:
-            episode["env"]["obstacles"]["positions"].append([obs.x,obs.y])
+            episode["env"]["obstacles"]["positions"].append([obs.x, obs.y])
             episode["env"]["obstacles"]["r"].append(obs.r)
 
         # save robot config
@@ -565,7 +565,7 @@ class MarineNavEnv2():
 
         return episode
 
-    def save_episode(self,filename):
+    def save_episode(self, filename):
         episode = self.episode_data()
-        with open(filename,"w") as file:
-            json.dump(episode,file)
+        with open(filename, "w") as file:
+            json.dump(episode, file)
