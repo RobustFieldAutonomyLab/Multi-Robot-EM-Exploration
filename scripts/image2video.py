@@ -1,14 +1,14 @@
 from PIL import Image
 import os
 
-if 0:
-    folder_path = 'tmp/'  # Path to the folder containing the images
+if 1:
+    folder_path = 'test/tmp/'  # Path to the folder containing the images
     image_extensions = '.png'  # List of valid image file extensions
 
     image_names = [
     ]
 
-    for i in range(0, 12):
+    for i in range(0, 30):
         image_names.append('test_virtual_map' + str(i) + image_extensions)
 
     images = []

@@ -11,7 +11,7 @@ from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator
-
+from nav.frontier import DEBUG
 
 class ExpVisualizer:
 
@@ -37,6 +37,7 @@ class ExpVisualizer:
         self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
+        self.exploration_terminate_ratio = 0.85
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
                              "radius": self.env.robots[0].perception.range}
@@ -63,11 +64,13 @@ class ExpVisualizer:
 
         self.plot_graph(self.axis_graph)
 
-    def plot_grid(self, axis, probability=True, information=True):
-        data = self.virtual_map.get_probability_matrix()
-        axis.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
-                    extent=[self.virtual_map.minX, self.virtual_map.maxX,
-                            self.virtual_map.minY, self.virtual_map.maxY])
+    def plot_grid(self, axis, probability=True, information=False):
+        axis.cla()
+        if probability:
+            data = self.virtual_map.get_probability_matrix()
+            axis.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+                        extent=[self.virtual_map.minX, self.virtual_map.maxX,
+                                self.virtual_map.minY, self.virtual_map.maxY])
         self.axis_grid.set_xticks([])
         self.axis_grid.set_yticks([])
         if information:
@@ -316,11 +319,13 @@ class ExpVisualizer:
         init_y = self.env.robots[0].start[1]
         self.landmark_list = self.landmark_slam.get_landmark_list([init_x, init_y,
                                                                    self.env.robots[0].init_theta])
-        self.frontier_generator.generate(probability_map,
+        explored_ratio = self.frontier_generator.generate(probability_map,
                                          self.landmark_slam.get_latest_state([init_x, init_y,
                                                                               self.env.robots[0].init_theta]),
-                                         self.landmark_list)
-        return self.frontier_generator.choose()
+                                         self.landmark_list, self.axis_grid)
+        if explored_ratio > self.exploration_terminate_ratio:
+            return True, [[None] * self.env.num_cooperative]
+        return False, self.frontier_generator.choose()
 
     def visualize_frontier(self):
         color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
@@ -328,3 +333,8 @@ class ExpVisualizer:
             positions = self.frontier_generator.return_frontiers_position(i)
             for position in positions:
                 self.axis_grid.plot(position[0], position[1], '.', color=color_list[i])
+
+        meeting_position = self.frontier_generator.return_frontiers_rendezvous()
+        for position in meeting_position:
+            self.axis_grid.scatter(position[0], position[1], marker='o', facecolors='none', edgecolors='black')
+

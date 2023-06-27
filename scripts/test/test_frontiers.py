@@ -6,7 +6,11 @@ sys.path.insert(0, "../../")
 import nav.exp_max
 from tqdm import tqdm
 
+
+
 if 1:
+
+
     # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
     ev = nav.exp_max.ExpVisualizer(seed=123)
     ev.init_visualize()
@@ -14,11 +18,15 @@ if 1:
     # ev.visualize_navigation()
 
     # Do a ten step navigate
-    n = 12
+    n = 30
     visualize = True
     for i in tqdm(range(0, n)):
         slam_result = ev.navigate_one_step("tmp/test_virtual_map", False)
-        goals = ev.generate_frontier()
+        terminate_signal, goals = ev.generate_frontier()
+        if nav.exp_max.DEBUG:
+            print(goals)
+        if terminate_signal:
+            break
         ev.reset_goal(goals)
         if visualize:
             ev.plot_grid(ev.axis_grid)

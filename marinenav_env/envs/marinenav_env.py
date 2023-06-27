@@ -109,7 +109,8 @@ class MarineNavEnv2:
         ##### generate robots with randomly generated start and goal 
         num_robots = 0
         iteration = 500
-        start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
+        start_center = np.array([self.width/2, self.height/2])
+        # start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
         # goal_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
 
         while True:

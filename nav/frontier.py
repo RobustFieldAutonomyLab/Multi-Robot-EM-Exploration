@@ -5,11 +5,16 @@ from scipy.ndimage import convolve
 from scipy.spatial.distance import cdist
 from nav.virtualmap import VirtualMap
 import copy
+DEBUG = False
 
 
 class Frontier:
-    def __init__(self, position, relative=None, robot_id=None):
+    def __init__(self, position, relative=None, robot_id=None, nearest_frontier=False):
         self.position = position
+        self.nearest_frontier = []
+        if nearest_frontier and (robot_id is not None):
+            self.nearest_frontier.append(robot_id)
+
         self.connected_robot = []
         self.connected_robot_pair = []
         self.relatives = []
@@ -51,6 +56,12 @@ class FrontierGenerator:
                                          [1, 0, 1],
                                          [0, 1, 0]])
         self.max_visited_neighbor = 2
+
+        self.boundary_ratio = 0.1  # Avoid frontiers near boundaries since our environment actually do not have boundary
+        self.boundary_value_j = int(self.boundary_ratio / self.cell_size * (self.max_x - self.min_x))
+        self.boundary_value_i = int(self.boundary_ratio / self.cell_size * (self.max_y - self.min_y))
+        print(self.boundary_value_i, self.boundary_value_j)
+
         self.frontiers = None
 
     def position_2_index(self, position):
@@ -63,33 +74,51 @@ class FrontierGenerator:
         y = index[0] * self.cell_size + self.cell_size * .5 + self.min_y
         return [x, y]
 
-    def generate(self, probability_map, state_list, landmark_list):
+    def generate(self, probability_map, state_list, landmark_list, axis):
         # probability_map: 2d-array, value: [0,1]
         # state_list: [gtsam.Pose2, ...]
         # landmarks_list: [[id, x, y], ...]
         if len(state_list) != self.num_robot:
             raise ValueError("len(state_list) not equal to num of robots!")
         data_free = probability_map < self.free_threshold
-        data_free[[0, -1], :] = False  # avoid the boundary being selected
-        data_free[:, [0, -1]] = False
         data_occupied = probability_map > self.obstacle_threshold
         data = data_free | data_occupied
 
+        explored_ratio = np.mean(data)
+        print("Present exploration ratio: ", explored_ratio)
+
         neighbor_sum = convolve(data.astype(int), self.neighbor_kernel, mode='constant', cval=0) - data.astype(int)
-        indices = np.argwhere(data & (neighbor_sum < self.max_visited_neighbor))
+
+        data[0:self.boundary_value_i, :] = False  # avoid the boundary being selected
+        data[-self.boundary_value_i:-1, :] = False
+        data[:, 0:self.boundary_value_j] = False
+        data[:, -self.boundary_value_j:-1] = False
+
+        frontier_candidate_pool_data = data & (neighbor_sum < self.max_visited_neighbor)
+        indices = np.argwhere(frontier_candidate_pool_data)
+
+        if DEBUG:
+            print("indices: ", indices)
+
         self.frontiers = {}
 
         indices_distances_within_list = [[] for _ in range(len(state_list))]
         for i, state in enumerate(state_list):
             state_index = self.position_2_index([state.x(), state.y()])
             distances = cdist([state_index], indices, metric='euclidean')[0]
+            if DEBUG:
+                print("robot ", i)
+                print("distances: ", distances)
             indices_distances_within_list[i] = np.argwhere(
                 np.logical_and(self.min_distance_scaled < distances, distances < self.max_distance_scaled))
 
             # Type 1 frontier, the nearest frontier to current position
             index_this = np.argmin(distances)
+
             position_this = self.index_2_position(indices[index_this])
-            self.frontiers[index_this] = Frontier(position_this, robot_id=i)
+            if DEBUG:
+                print("index: ", index_this, position_this)
+            self.frontiers[index_this] = Frontier(position_this, robot_id=i, nearest_frontier=True)
 
             if i == 0:
                 continue
@@ -125,11 +154,14 @@ class FrontierGenerator:
                 if self.frontiers[index_this].connected_robot == []:
                     self.frontiers[index_this].add_robot_connection(np.argmin(distances))
 
+        return explored_ratio
+
     def find_frontier_nearest_neighbor(self, robot_id):
         for value in self.frontiers.values():
-            if value.connected_robot != []:
-                if value.connected_robot[0] == robot_id:
-                    return copy.deepcopy(value.position)
+            if value.connected_robot:
+                if value.nearest_frontier is not None:
+                    if robot_id in value.nearest_frontier:
+                        return copy.deepcopy(value.position)
 
     def choose(self):
         goals = [[] for _ in range(self.num_robot)]
@@ -146,4 +178,11 @@ class FrontierGenerator:
             for pair in value.connected_robot_pair:
                 if robot_id in pair:
                     frontiers.append(value.position)
+        return frontiers
+
+    def return_frontiers_rendezvous(self):
+        frontiers = []
+        for value in self.frontiers.values():
+            if value.connected_robot_pair != []:
+                frontiers.append(value.position)
         return frontiers
