@@ -5,6 +5,7 @@ from scipy.ndimage import convolve
 from scipy.spatial.distance import cdist
 from nav.virtualmap import VirtualMap
 import copy
+
 DEBUG = False
 
 
@@ -57,10 +58,13 @@ class FrontierGenerator:
                                          [0, 1, 0]])
         self.max_visited_neighbor = 2
 
+        self.virtual_move_length = 0.5
+
         self.boundary_ratio = 0.1  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_ratio / self.cell_size * (self.max_x - self.min_x))
         self.boundary_value_i = int(self.boundary_ratio / self.cell_size * (self.max_y - self.min_y))
-        print(self.boundary_value_i, self.boundary_value_j)
+        if DEBUG:
+            print("boundary value: ", self.boundary_value_i, self.boundary_value_j)
 
         self.frontiers = None
 
@@ -118,7 +122,11 @@ class FrontierGenerator:
             position_this = self.index_2_position(indices[index_this])
             if DEBUG:
                 print("index: ", index_this, position_this)
-            self.frontiers[index_this] = Frontier(position_this, robot_id=i, nearest_frontier=True)
+            if index_this in self.frontiers:
+                self.frontiers[index_this].nearest_frontier.append(i)
+                self.frontiers[index_this].connected_robot.append(i)
+            else:
+                self.frontiers[index_this] = Frontier(position_this, robot_id=i, nearest_frontier=True)
 
             if i == 0:
                 continue
@@ -186,3 +194,25 @@ class FrontierGenerator:
             if value.connected_robot_pair != []:
                 frontiers.append(value.position)
         return frontiers
+
+    def generate_virtual_waypoints(self, state_this, state_next):
+        # return numpy.ndarray
+        # [[x0,y0,theta0], ..., [x1,y1,theta1]]
+        if isinstance(state_this, gtsam.Pose2):
+            state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
+        elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
+            state_0 = np.array([state_this[0], state_this[1], 0])
+        else:
+            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+        if isinstance(state_next, gtsam.Pose2):
+            state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
+        elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
+            state_1 = np.array([state_next[0], state_next[1], 0])
+        else:
+            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+
+        step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]))
+
+        waypoints = np.linspace(state_0, state_1, step)
+
+        return waypoints

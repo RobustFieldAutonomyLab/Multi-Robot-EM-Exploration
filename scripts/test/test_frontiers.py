@@ -23,7 +23,7 @@ if 1:
     for i in tqdm(range(0, n)):
         slam_result = ev.navigate_one_step("tmp/test_virtual_map", False)
         terminate_signal, goals = ev.generate_frontier()
-        if nav.exp_max.DEBUG:
+        if nav.exp_max.DEBUG_EXP_MAX:
             print(goals)
         if terminate_signal:
             break

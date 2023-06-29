@@ -1,7 +1,7 @@
 import numpy as np
 import gtsam
 import copy
-
+DEBUG_NAV = False
 
 class LandmarkSLAM:
     def __init__(self):
@@ -78,6 +78,9 @@ class LandmarkSLAM:
         self.initial.clear()
         self.result = self.isam.calculateEstimate()
         self.marginals = gtsam.Marginals(self.isam.getFactorsUnsafe(), self.result)
+        if DEBUG_NAV:
+            print("SLAM result:", self.result)
+            print("SLAM graph: ", self.isam.getFactorsUnsafe())
 
     def get_robot_value_initial(self, robot_id, idx):
         if self.initial.exists(gtsam.symbol(chr(robot_id + ord('a')), idx)):

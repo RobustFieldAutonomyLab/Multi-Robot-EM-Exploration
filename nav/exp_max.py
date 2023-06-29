@@ -11,7 +11,9 @@ from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator
-from nav.frontier import DEBUG
+
+DEBUG_EXP_MAX = True
+
 
 class ExpVisualizer:
 
@@ -43,6 +45,8 @@ class ExpVisualizer:
                              "radius": self.env.robots[0].perception.range}
         self.virtual_map = VirtualMap(param_virtual_map)
 
+        self.color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
+
         param_frontier = self.virtual_map.get_parameters()
         param_frontier["nearest_frontier_flag"] = True
         param_frontier["num_robot"] = self.env.num_cooperative
@@ -65,7 +69,8 @@ class ExpVisualizer:
         self.plot_graph(self.axis_graph)
 
     def plot_grid(self, axis, probability=True, information=False):
-        axis.cla()
+        if not DEBUG_EXP_MAX:
+            axis.cla()
         if probability:
             data = self.virtual_map.get_probability_matrix()
             axis.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
@@ -161,7 +166,11 @@ class ExpVisualizer:
     def reset_goal(self, goal_list):
         self.env.reset_goal(goal_list)
         for idx, goal in enumerate(goal_list):
-            self.axis_graph.scatter(goal[0], goal[1], marker=".", color="yellow", s=500, zorder=5)
+            try:
+                self.axis_graph.scatter(goal[0], goal[1], marker=".", color="yellow", s=500, zorder=5)
+            except:
+                print("idx: ", idx)
+                print("goal: ", goal)
             # self.axis_graph.text(goal[0] - 1, goal[1] + 1, str(idx), color="yellow", fontsize=15)
 
     def plot_robots(self):
@@ -295,13 +304,13 @@ class ExpVisualizer:
         return slam_obs_list
 
     def visualize_SLAM(self, start_idx=0):
-        color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
+        # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
         init_x = self.env.robots[0].start[0]
         init_y = self.env.robots[0].start[1]
         for i in range(self.env.num_cooperative):
             pose = self.landmark_slam.get_robot_trajectory(i, [init_x, init_y,
                                                                self.env.robots[0].init_theta])
-            self.axis_grid.plot(pose[:, 0], pose[:, 1], color=color_list[i], linewidth=2, zorder=10)
+            self.axis_grid.plot(pose[:, 0], pose[:, 1], color=self.color_list[i], linewidth=2, zorder=10)
             # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
 
         for landmark_obs in self.landmark_list:
@@ -320,21 +329,42 @@ class ExpVisualizer:
         self.landmark_list = self.landmark_slam.get_landmark_list([init_x, init_y,
                                                                    self.env.robots[0].init_theta])
         explored_ratio = self.frontier_generator.generate(probability_map,
-                                         self.landmark_slam.get_latest_state([init_x, init_y,
-                                                                              self.env.robots[0].init_theta]),
-                                         self.landmark_list, self.axis_grid)
+                                                          self.landmark_slam.get_latest_state([init_x, init_y,
+                                                                                               self.env.robots[
+                                                                                                   0].init_theta]),
+                                                          self.landmark_list, self.axis_grid)
         if explored_ratio > self.exploration_terminate_ratio:
             return True, [[None] * self.env.num_cooperative]
+        if DEBUG_EXP_MAX:
+            self.test_generate_virtual_waypoints(self.landmark_slam.get_latest_state([init_x, init_y,
+                                                                                      self.env.robots[0].init_theta]))
         return False, self.frontier_generator.choose()
 
     def visualize_frontier(self):
-        color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
+        # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
         for i in range(0, self.env.num_cooperative):
             positions = self.frontier_generator.return_frontiers_position(i)
             for position in positions:
-                self.axis_grid.plot(position[0], position[1], '.', color=color_list[i])
+                self.axis_grid.plot(position[0], position[1], '.', color=self.color_list[i])
 
         meeting_position = self.frontier_generator.return_frontiers_rendezvous()
         for position in meeting_position:
             self.axis_grid.scatter(position[0], position[1], marker='o', facecolors='none', edgecolors='black')
 
+    def draw_virtual_waypoints(self, waypoints, robot_id):
+        self.axis_grid.plot(waypoints[:, 0], waypoints[:, 1],
+                            marker='.', linestyle='-', color=self.color_list[robot_id],
+                            alpha=0.3, linewidth=.5)
+
+    def test_generate_virtual_waypoints(self, state_list):
+        self.axis_grid.cla()
+        for frontier in self.frontier_generator.frontiers.values():
+            for robot_id in frontier.connected_robot:
+                virtual_waypoints = self.frontier_generator.generate_virtual_waypoints(
+                    state_list[robot_id], frontier.position)
+                self.draw_virtual_waypoints(virtual_waypoints, robot_id)
+            for robot_pair in frontier.connected_robot_pair:
+                for robot_id in robot_pair:
+                    virtual_waypoints = self.frontier_generator.generate_virtual_waypoints(
+                        state_list[robot_id], frontier.position)
+                    self.draw_virtual_waypoints(virtual_waypoints, 5)
