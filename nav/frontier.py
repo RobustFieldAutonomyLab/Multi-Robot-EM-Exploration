@@ -34,6 +34,29 @@ class Frontier:
         self.connected_robot_pair.append((robot_id_0, robot_id_1))
 
 
+def generate_virtual_waypoints(state_this, state_next):
+    # return numpy.ndarray
+    # [[x0,y0,theta0], ..., [x1,y1,theta1]]
+    if isinstance(state_this, gtsam.Pose2):
+        state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
+    elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
+        state_0 = np.array([state_this[0], state_this[1], 0])
+    else:
+        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+    if isinstance(state_next, gtsam.Pose2):
+        state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
+    elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
+        state_1 = np.array([state_next[0], state_next[1], 0])
+    else:
+        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+
+    step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]))
+
+    waypoints = np.linspace(state_0, state_1, step)
+
+    return waypoints
+
+
 class FrontierGenerator:
     def __init__(self, parameters):
         self.max_x = parameters["maxX"]
@@ -194,25 +217,3 @@ class FrontierGenerator:
             if value.connected_robot_pair != []:
                 frontiers.append(value.position)
         return frontiers
-
-    def generate_virtual_waypoints(self, state_this, state_next):
-        # return numpy.ndarray
-        # [[x0,y0,theta0], ..., [x1,y1,theta1]]
-        if isinstance(state_this, gtsam.Pose2):
-            state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
-        elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
-            state_0 = np.array([state_this[0], state_this[1], 0])
-        else:
-            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-        if isinstance(state_next, gtsam.Pose2):
-            state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
-        elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
-            state_1 = np.array([state_next[0], state_next[1], 0])
-        else:
-            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-
-        step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]))
-
-        waypoints = np.linspace(state_0, state_1, step)
-
-        return waypoints
