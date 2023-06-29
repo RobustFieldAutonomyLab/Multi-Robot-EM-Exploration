@@ -2,9 +2,10 @@ import math
 import numpy as np
 import gtsam
 from scipy.spatial.distance import cdist
-import copy
-from marinenav_env.envs.utils.robot import RangeBearingMeasurement
 from scipy.linalg import cho_factor, cho_solve
+import copy
+
+from marinenav_env.envs.utils.robot import RangeBearingMeasurement
 
 
 def prob_to_logodds(p):
@@ -22,6 +23,13 @@ MIN_LOGODDS = prob_to_logodds(0.05)
 MAX_LOGODDS = prob_to_logodds(0.95)
 FREE_THRESH = prob_to_logodds(0.5)
 OCCUPIED_THRESH = prob_to_logodds(0.5)
+
+
+def get_logodds(free: bool):
+    if free:
+        return LOGODDS_FREE
+    else:
+        return LOGODDS_OCCUPIED
 
 
 class VirtualLandmark:
@@ -72,13 +80,6 @@ class VirtualLandmark:
             self.updated = True
         else:
             self.updated = signal
-
-
-def get_logodds(free: bool):
-    if free:
-        return LOGODDS_FREE
-    else:
-        return LOGODDS_OCCUPIED
 
 
 class OccupancyMap:
@@ -213,7 +214,7 @@ class VirtualMap:
 
     def get_parameters(self):
         param = {"maxX": self.maxX, "minX": self.minX, "maxY": self.maxY, "minY": self.minY,
-                 "cell_size": self.cell_size}
+                 "cell_size": self.cell_size, "radius": self.radius}
         return param
 
     def reset_probability(self, data=None):

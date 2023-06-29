@@ -1,5 +1,3 @@
-import time
-
 import marinenav_env.envs.marinenav_env as marinenav_env
 import numpy as np
 import matplotlib as mpl
@@ -10,7 +8,7 @@ import copy
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
-from nav.frontier import FrontierGenerator, generate_virtual_waypoints
+from nav.frontier import FrontierGenerator, ExpectationMaximizationTrajectory
 
 DEBUG_EXP_MAX = False
 
@@ -358,13 +356,14 @@ class ExpVisualizer:
 
     def test_generate_virtual_waypoints(self, state_list):
         self.axis_grid.cla()
+        emt = ExpectationMaximizationTrajectory()
         for frontier in self.frontier_generator.frontiers.values():
             for robot_id in frontier.connected_robot:
-                virtual_waypoints = generate_virtual_waypoints(
+                virtual_waypoints = emt.generate_virtual_waypoints(
                     state_list[robot_id], frontier.position)
                 self.draw_virtual_waypoints(virtual_waypoints, robot_id)
             for robot_pair in frontier.connected_robot_pair:
                 for robot_id in robot_pair:
-                    virtual_waypoints = generate_virtual_waypoints(
+                    virtual_waypoints = emt.generate_virtual_waypoints(
                         state_list[robot_id], frontier.position)
                     self.draw_virtual_waypoints(virtual_waypoints, 5)

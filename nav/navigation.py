@@ -1,7 +1,9 @@
 import numpy as np
 import gtsam
-import copy
+from nav.utils import get_symbol
+
 DEBUG_NAV = False
+
 
 class LandmarkSLAM:
     def __init__(self):
@@ -93,14 +95,11 @@ class LandmarkSLAM:
     def get_landmark_value_initial(self, idl):
         return self.initial.atPoint2(idl)
 
-    def get_symbol(self, robot_id, idx):
-        return gtsam.symbol(chr(robot_id + ord('a')), idx)
-
     def get_robot_trajectory(self, robot_id, origin):
         pose2_list = np.zeros([self.idx[robot_id] + 1, 3])
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
         for i in range(self.idx[robot_id] + 1):
-            pose = self.result.atPose2(self.get_symbol(robot_id, i))
+            pose = self.result.atPose2(get_symbol(robot_id, i))
             pose = origin_pose.compose(pose)
             pose2_list[i, 0] = pose.x()
             pose2_list[i, 1] = pose.y()
@@ -138,7 +137,7 @@ class LandmarkSLAM:
         state_list = [[] for _ in range(len(self.idx))]
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
         for i, key_int in enumerate(self.idx):
-            key = self.get_symbol(i, key_int)
+            key = get_symbol(i, key_int)
             pose = self.result.atPose2(key)
             state_list[i] = origin_pose.compose(pose)
         return state_list

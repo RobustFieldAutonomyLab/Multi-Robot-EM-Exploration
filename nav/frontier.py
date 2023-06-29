@@ -1,10 +1,12 @@
 import numpy as np
 import gtsam
 import math
+import copy
 from scipy.ndimage import convolve
 from scipy.spatial.distance import cdist
-from nav.virtualmap import VirtualMap
-import copy
+
+from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
+from nav.utils import get_symbol
 
 DEBUG = False
 
@@ -34,29 +36,6 @@ class Frontier:
         self.connected_robot_pair.append((robot_id_0, robot_id_1))
 
 
-def generate_virtual_waypoints(state_this, state_next):
-    # return numpy.ndarray
-    # [[x0,y0,theta0], ..., [x1,y1,theta1]]
-    if isinstance(state_this, gtsam.Pose2):
-        state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
-    elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
-        state_0 = np.array([state_this[0], state_this[1], 0])
-    else:
-        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-    if isinstance(state_next, gtsam.Pose2):
-        state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
-    elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
-        state_1 = np.array([state_next[0], state_next[1], 0])
-    else:
-        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-
-    step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]))
-
-    waypoints = np.linspace(state_0, state_1, step)
-
-    return waypoints
-
-
 class FrontierGenerator:
     def __init__(self, parameters):
         self.max_x = parameters["maxX"]
@@ -65,6 +44,7 @@ class FrontierGenerator:
         self.min_y = parameters['minY']
         self.cell_size = parameters["cell_size"]
         self.num_robot = parameters["num_robot"]
+        self.radius = parameters["radius"]
 
         self.nearest_frontier_flag = parameters["nearest_frontier_flag"]
 
@@ -90,6 +70,7 @@ class FrontierGenerator:
             print("boundary value: ", self.boundary_value_i, self.boundary_value_j)
 
         self.frontiers = None
+        self.one_robot_per_landmark_frontier = True
 
     def position_2_index(self, position):
         index_j = int(math.floor((position[0] - self.min_x) / self.cell_size))
@@ -175,12 +156,13 @@ class FrontierGenerator:
             else:
                 self.frontiers[index_this] = Frontier(position_this, relative=landmark[0])
             distances = cdist([position_this], state_list_array, metric='euclidean')[0]
-            connected_robots = np.argwhere(
-                np.logical_and(self.min_distance < distances, distances < self.max_distance))
-            if connected_robots != []:
-                for robot_id in connected_robots:
-                    if robot_id not in self.frontiers[index_this].connected_robot:
-                        self.frontiers[index_this].add_robot_connection(robot_id)
+            if not self.one_robot_per_landmark_frontier:
+                connected_robots = np.argwhere(
+                    np.logical_and(self.min_distance < distances, distances < self.max_distance))
+                if connected_robots != []:
+                    for robot_id in connected_robots:
+                        if robot_id not in self.frontiers[index_this].connected_robot:
+                            self.frontiers[index_this].add_robot_connection(robot_id)
             else:
                 if self.frontiers[index_this].connected_robot == []:
                     self.frontiers[index_this].add_robot_connection(np.argmin(distances))
@@ -217,3 +199,151 @@ class FrontierGenerator:
             if value.connected_robot_pair != []:
                 frontiers.append(value.position)
         return frontiers
+
+
+class ExpectationMaximizationTrajectory:
+    def __init__(self, parameters, landmarks):
+        # radius for generate virtual landmark and virtual inter-robot observation
+        self.radius = parameters['radius']
+        # for odometry measurement
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
+
+        # for landmark measurement
+        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004])
+
+        # for inter-robot measurement
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
+
+        self.landmarks = landmarks
+
+    def generate_virtual_waypoints(self, state_this, state_next):
+        # return numpy.ndarray
+        # [[x0,y0,theta0], ..., [x1,y1,theta1]]
+        if isinstance(state_this, gtsam.Pose2):
+            state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
+        elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
+            state_0 = np.array([state_this[0], state_this[1], 0])
+        else:
+            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+        if isinstance(state_next, gtsam.Pose2):
+            state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
+        elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
+            state_1 = np.array([state_next[0], state_next[1], 0])
+        else:
+            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+
+        step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]))
+
+        waypoints = np.linspace(state_0, state_1, step)
+
+        return waypoints
+
+    def odometry_measurement_gtsam_format(self, measurement, robot_id=None, id0=None, id1=None):
+        return gtsam.BetweenFactorPose2(get_symbol(robot_id, id0), get_symbol(robot_id, id1),
+                                        gtsam.Pose2(measurement[0], measurement[1], measurement[2]),
+                                        self.odom_noise_model)
+
+    def landmark_measurement_gtsam_format(self, bearing=None, range=None, robot_id=None, id0=None, idl=None):
+        return gtsam.BearingRangeFactor2D(get_symbol(robot_id, id0), idl,
+                                          gtsam.Rot2(bearing), range, self.range_bearing_noise_model)
+
+    def robot_measurement_gtsam_format(self, measurement, robot_id: tuple, id: tuple):
+        return gtsam.BetweenFactorPose2(get_symbol(robot_id[0], id[0]), get_symbol(robot_id[1], id[1]),
+                                        gtsam.Pose2(measurement[0], measurement[1], measurement[2]),
+                                        self.robot_noise_model)
+
+    def waypoints2landmark_observations(self, waypoints, robot_id=None, id_initial=None):
+        # waypoints: [[x, y, theta], ...]
+        # landmarks: [id, x, y], ...]
+        # robot_id: robot id
+        # id_initial: index of the first virtual waypoint in the sequence
+        graph = gtsam.NonlinearFactorGraph()
+        initial_estimate = gtsam.Values()
+
+        odometry_factory = Odometry(use_noise=False)
+        range_bearing_factory = RangeBearingMeasurement(use_noise=False)
+
+        for i, waypoint in enumerate(waypoints):
+            # calculate virtual odometry between neighbor waypoints
+            if i == 0:
+                # the first waypoint is same as present robot position, so no need to add into graph
+                odometry_factory.reset(waypoint)
+                continue
+
+            odometry_factory.add_noise(waypoint[0], waypoint[1], waypoint[2])
+            odometry_this = odometry_factory.get_odom()
+            # add odometry
+            graph.add(self.odometry_measurement_gtsam_format(
+                odometry_this, robot_id, id_initial + i - 1, id_initial + i))
+            initial_estimate.insert(get_symbol(robot_id, id_initial + i),
+                                    gtsam.Pose2(waypoint[0], waypoint[1], waypoint[2]))
+
+            # calculate Euclidean distance between waypoint and landmarks
+            distances = cdist([waypoint[0:2]], self.landmarks[:, 1:3], metric='euclidean')[0]
+            landmark_indices = np.argwhere(distances < self.radius)
+            if landmark_indices != []:
+                # add landmark observation factor
+                for landmark_index in landmark_indices:
+                    landmark_this = self.landmarks[landmark_index]
+                    # calculate range and bearing
+                    rb = range_bearing_factory.add_noise_point_based(waypoint, landmark_this[2:3])
+                    graph.add(self.landmark_measurement_gtsam_format(bearing=rb[1], range=rb[0],
+                                                                     robot_id=robot_id,
+                                                                     id0=id_initial + i,
+                                                                     idl=landmark_this[0]))
+        return graph, initial_estimate
+
+    def waypoints2robot_observation(self, waypoints: tuple, robot_id: tuple, id_initial: tuple):
+        # waypoints: ([[x, y, theta], ...], [[x, y, theta], ...])
+        # robot_id: (robot id0, robot id1)
+        # id_initial: (index robot0, index robot1)
+        graph = gtsam.NonlinearFactorGraph()
+
+        robot_neighbor_factory = RobotNeighborMeasurement(use_noise=False)
+
+        waypoints0 = waypoints[0]
+        waypoints1 = waypoints[1]
+
+        length0 = len(waypoints0)
+        length1 = len(waypoints1)
+
+        if length0 < length1:
+            repeat_times = length1 - length0
+            repeated_rows = np.repeat(waypoints0[-1:], repeat_times, axis=0)
+            waypoints0 = np.concatenate((waypoints0, repeated_rows), axis=0)
+        else:
+            repeat_times = length0 - length1
+            repeated_rows = np.repeat(waypoints1[-1:], repeat_times, axis=0)
+            waypoints1 = np.concatenate((waypoints1, repeated_rows), axis=0)
+        distances = np.linalg.norm(waypoints0[0:2] - waypoints1[0:2], axis=1)
+        # find out the index of waypoints where robot could observe each other
+        robot_indices = np.argwhere(distances < self.radius)
+        for robot_index in robot_indices:
+            # add robot observation factor
+            measurement = robot_neighbor_factory.add_noise_pose_based(waypoints0[robot_index], waypoints1[robot_index])
+            graph.add(self.robot_measurement_gtsam_format(
+                measurement, robot_id, (id_initial[0] + robot_index, id_initial[1] + robot_index)))
+        return graph
+
+    def generate_virtual_observation_graph(self, frontier_position, robot_position,
+                                           robot_id, robot_last_index):
+        # the variables are either all tuples or all not tuples TODO: add safety check for this
+        graph = gtsam.NonlinearFactorGraph()
+        initial_estimate = gtsam.Values()
+        if not isinstance(frontier_position, tuple):
+            virtual_waypoints = self.generate_virtual_waypoints(robot_position, frontier_position)
+            graph, initial_estimate = self.waypoints2landmark_observations(virtual_waypoints,
+                                                                           robot_id, robot_last_index)
+        else:
+            virtual_waypoints = [[] for _ in range(len(frontier_position))]
+            for i in range(len(frontier_position)):
+                virtual_waypoints[i] = self.generate_virtual_waypoints(robot_position[i], frontier_position[i])
+                graph_this, initial_estimate_this = self.waypoints2landmark_observations(virtual_waypoints[i],
+                                                                                         robot_id[i],
+                                                                                         robot_last_index[i])
+                graph.add(graph_this)
+                initial_estimate.insert(initial_estimate_this)
+            graph_this = self.waypoints2robot_observation(tuple(virtual_waypoints), robot_id,
+                                                          robot_last_index)
+            graph.add(graph_this)
+        return graph, initial_estimate

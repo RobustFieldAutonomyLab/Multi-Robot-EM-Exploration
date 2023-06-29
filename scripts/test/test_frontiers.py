@@ -1,7 +1,5 @@
 import sys
 
-import gtsam
-
 sys.path.insert(0, "../../")
 import nav.exp_max
 from tqdm import tqdm
@@ -9,8 +7,6 @@ from tqdm import tqdm
 
 
 if 1:
-
-
     # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
     ev = nav.exp_max.ExpVisualizer(seed=123)
     ev.init_visualize()

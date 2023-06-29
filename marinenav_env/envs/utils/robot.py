@@ -2,10 +2,40 @@ import numpy as np
 import copy
 
 
+def theta_0_to_2pi(theta):
+    while theta < 0.0:
+        theta += 2 * np.pi
+    while theta >= 2 * np.pi:
+        theta -= 2 * np.pi
+    return theta
+
+
+def world_to_local(x, y, theta, origin):
+    # compute transformation from world frame to robot frame
+    R_wr, t_wr = pose_vector_to_matrix(origin[0], origin[1], origin[2])
+    R_rw = np.transpose(R_wr)
+    t_rw = -R_rw * t_wr
+
+    R_this, t_this = pose_vector_to_matrix(x, y, theta)
+    t_this = R_rw * t_this + t_rw
+
+    return t_this[0, 0], t_this[1, 0], theta_0_to_2pi(theta - origin[2])
+
+
+def pose_vector_to_matrix(x, y, theta):
+    # compose matrix expression of pose vector
+    R_rw = np.matrix([[np.cos(theta), -np.sin(theta)],
+                      [np.sin(theta), np.cos(theta)]])
+    t_rw = np.matrix([[x], [y]])
+
+    return R_rw, t_rw
+
+
 class Perception:
 
     def __init__(self, cooperative: bool = False):
         # 2D LiDAR model with detection area as a sector
+        self.observation = None
         self.range = 10.0  # range of beams (meter)
         self.angle = 2 * np.pi  # detection angle range
         # self.len_obs_history = 0  # the window size of observation history
@@ -23,24 +53,26 @@ class Perception:
             self.observation = dict(self=[], static=[])
 
 
-def theta_0_to_2pi(theta):
-    while theta < 0.0:
-        theta += 2 * np.pi
-    while theta >= 2 * np.pi:
-        theta -= 2 * np.pi
-    return theta
-
-
 class Odometry:
-    def __init__(self):
-        self.max_g_error = 2 / 180 * np.pi  # max gyro error
-        self.max_a_error = 0.02  # max acceleration error
-        self.max_a_p_error = 0.02  # max acceleration error percentage
-        z_score = 1.96  # 95% confidence interval
+    def __init__(self, use_noise=True):
+        self.use_noise = use_noise
+        if use_noise:
+            self.max_g_error = 2 / 180 * np.pi  # max gyro error
+            self.max_a_error = 0.02  # max acceleration error
+            self.max_a_p_error = 0.02  # max acceleration error percentage
+            z_score = 1.96  # 95% confidence interval
 
-        self.sigma_g = self.max_g_error / z_score
-        self.sigma_a = self.max_a_error / z_score  # accel noise
-        self.sigma_a_p = self.max_a_p_error / z_score  # accel noise percentage
+            self.sigma_g = self.max_g_error / z_score
+            self.sigma_a = self.max_a_error / z_score  # accel noise
+            self.sigma_a_p = self.max_a_p_error / z_score  # accel noise percentage
+        else:
+            self.max_g_error = 0
+            self.max_a_error = 0
+            self.max_a_p_error = 0
+            self.sigma_g = 0
+            self.sigma_a = 0
+            self.sigma_a_p = 0
+
         self.x_old = None
         self.y_old = None
         self.theta_old = None
@@ -51,48 +83,35 @@ class Odometry:
         self.y_old = y0
         self.theta_old = theta0
 
-    def pose_vector_to_matrix(self, x, y, theta):
-        # compose matrix expression of pose vector
-        R_rw = np.matrix([[np.cos(theta), -np.sin(theta)],
-                          [np.sin(theta), np.cos(theta)]])
-        t_rw = np.matrix([[x], [y]])
-
-        return R_rw, t_rw
-
-    def world_to_local(self, x, y, theta):
-        # compute transformation from world frame to robot frame
-        R_wr, t_wr = self.pose_vector_to_matrix(self.x_old, self.y_old, self.theta_old)
-        R_rw = np.transpose(R_wr)
-        t_rw = -R_rw * t_wr
-
-        R_this, t_this = self.pose_vector_to_matrix(x, y, theta)
-        t_this = R_rw * t_this + t_rw
-
-        return t_this[0, 0], t_this[1, 0], theta_0_to_2pi(theta - self.theta_old)
-
     def add_noise(self, x_new, y_new, theta_new):
         if self.x_old is None:
             raise ValueError("Odometry is not initialized!")
 
-        dx, dy, dtheta = self.world_to_local(x_new, y_new, theta_new)
+        dx, dy, dtheta = world_to_local(x_new, y_new, theta_new,
+                                        [self.x_old, self.y_old, self.theta_old])
 
         self.x_old = copy.deepcopy(x_new)
         self.y_old = copy.deepcopy(y_new)
         self.theta_old = copy.deepcopy(theta_new)
 
-        # max acceleration 5 cm / 5% of measurement
-        sigma_a_p = self.sigma_a_p * np.linalg.norm([dx, dy])
-        sigma_a = np.min([self.sigma_a, sigma_a_p])
+        if self.use_noise:
+            # max acceleration 5 cm / 5% of measurement
+            sigma_a_p = self.sigma_a_p * np.linalg.norm([dx, dy])
+            sigma_a = np.min([self.sigma_a, sigma_a_p])
 
-        max_a_p_error = self.max_a_p_error * np.linalg.norm([dx, dy])
-        max_a_error = np.min([max_a_p_error, self.max_a_error])
+            max_a_p_error = self.max_a_p_error * np.linalg.norm([dx, dy])
+            max_a_error = np.min([max_a_p_error, self.max_a_error])
 
-        w_a = np.random.normal(0, sigma_a)
-        w_g = np.random.normal(0, self.sigma_g)
+            w_a = np.random.normal(0, sigma_a)
+            w_g = np.random.normal(0, self.sigma_g)
 
-        dtheta_noisy = theta_0_to_2pi(dtheta + np.clip(w_g, None, self.max_g_error))
-        dx_noisy = dx + np.clip(w_a, None, max_a_error) * np.cos(dtheta_noisy)
-        dy_noisy = dy + np.clip(w_a, None, max_a_error) * np.sin(dtheta_noisy)
+            dtheta_noisy = theta_0_to_2pi(dtheta + np.clip(w_g, None, self.max_g_error))
+            dx_noisy = dx + np.clip(w_a, None, max_a_error) * np.cos(dtheta_noisy)
+            dy_noisy = dy + np.clip(w_a, None, max_a_error) * np.sin(dtheta_noisy)
+        else:
+            dx_noisy = dx
+            dy_noisy = dy
+            dtheta_noisy = dtheta
 
         self.observation = [dx_noisy, dy_noisy, dtheta_noisy]
 
@@ -101,48 +120,97 @@ class Odometry:
 
 
 class RangeBearingMeasurement:
-    def __init__(self):
-        self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
-        self.max_r_error = 0.1  # max range error
-        z_score = 1.96  # 95% confidence interval
+    def __init__(self, use_noise = True):
+        self.use_noise = use_noise
+        if use_noise:
+            self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
+            self.max_r_error = 0.1  # max range error
+            z_score = 1.96  # 95% confidence interval
 
-        self.sigma_r = self.max_r_error / z_score
-        self.sigma_b = self.max_b_error / z_score
+            self.sigma_r = self.max_r_error / z_score
+            self.sigma_b = self.max_b_error / z_score
+        else:
+            self.max_r_error = 0
+            self.max_b_error = 0
+            self.sigma_r = 0
+            self.sigma_b = 0
 
     def add_noise(self, x_obs, y_obs):
         r = np.linalg.norm([x_obs, y_obs])
         b = np.arccos(x_obs / r)  # [0, PI]
         if y_obs < 0:
             b = 2 * np.pi - b
-        r_noise = np.random.normal(0, self.sigma_r)
-        r_noise = np.clip(r_noise, None, self.max_r_error)
+        if self.use_noise:
+            r_noise = np.random.normal(0, self.sigma_r)
+            r_noise = np.clip(r_noise, None, self.max_r_error)
 
-        b_noise = np.random.normal(0, self.sigma_b)
-        b_noise = np.clip(b_noise, None, self.max_b_error)
+            b_noise = np.random.normal(0, self.sigma_b)
+            b_noise = np.clip(b_noise, None, self.max_b_error)
+        else:
+            r_noise = 0
+            b_noise = 0
 
         return [r + r_noise, b + b_noise]
 
+    def add_noise_point_based(self, robot_pose, landmark_position):
+        x_r = np.reshape(np.array(landmark_position), (2, 1))
+
+        R_wr, t_wr = pose_vector_to_matrix(robot_pose[0], robot_pose[1], robot_pose[2])
+
+        R_rw = np.transpose(R_wr)
+        t_rw = -R_rw * t_wr
+
+        x_r = R_rw * x_r + t_rw
+        x_r.resize((2,))
+
+        return self.add_noise(x_r[0], x_r[1])
+
 
 class RobotNeighborMeasurement:
-    def __init__(self):
-        self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
-        self.max_r_error = 0.05  # max range error
-        z_score = 1.96  # 95% confidence interval
+    def __init__(self, use_noise = True):
+        self.use_noise = use_noise
+        if use_noise:
+            self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
+            self.max_r_error = 0.05  # max range error
+            z_score = 1.96  # 95% confidence interval
 
-        self.sigma_r = self.max_r_error / z_score
-        self.sigma_b = self.max_b_error / z_score
+            self.sigma_r = self.max_r_error / z_score
+            self.sigma_b = self.max_b_error / z_score
+        else:
+            self.max_b_error = 0
+            self.max_r_error = 0
+            self.sigma_r = 0
+            self.sigma_b = 0
 
     def add_noise(self, x_obs, y_obs, theta_obs):
-        x_noise = np.random.normal(0, self.sigma_r)
-        y_noise = np.random.normal(0, self.sigma_r)
+        if self.use_noise:
+            x_noise = np.random.normal(0, self.sigma_r)
+            y_noise = np.random.normal(0, self.sigma_r)
 
-        b_noise = np.random.normal(0, self.sigma_b)
+            b_noise = np.random.normal(0, self.sigma_b)
 
-        x_noisy = x_obs + np.clip(x_noise, None, self.max_r_error)
-        y_noisy = y_obs + np.clip(y_noise, None, self.max_r_error)
-        theta_noisy = theta_0_to_2pi(theta_obs + np.clip(b_noise, None, self.max_b_error))
+            x_noisy = x_obs + np.clip(x_noise, None, self.max_r_error)
+            y_noisy = y_obs + np.clip(y_noise, None, self.max_r_error)
+            theta_noisy = theta_0_to_2pi(theta_obs + np.clip(b_noise, None, self.max_b_error))
+        else:
+            x_noisy = x_obs
+            y_noisy = y_obs
+            theta_noisy = theta_obs
 
         return [x_noisy, y_noisy, theta_noisy]
+
+    def add_noise_pose_based(self, pose_local, pose_observed):
+        x_r = np.reshape(np.array(pose_observed[0], pose_observed[1]), (2, 1))
+
+        R_wr, t_wr = pose_vector_to_matrix(pose_local[0], pose_local[1], pose_local[2])
+
+        R_rw = np.transpose(R_wr)
+        t_rw = -R_rw * t_wr
+
+        x_r = R_rw * x_r + t_rw
+        x_r.resize((2,))
+
+        return self.add_noise(x_r[0], x_r[1], theta_0_to_2pi(pose_observed[2]-pose_local[2]))
 
 
 class Robot:
@@ -292,52 +360,6 @@ class Robot:
         else:
             return False
 
-    # def compute_intersection(self,angle,obj_x,obj_y,obj_r):
-    #     # compute the intersection point of a LiDAR beam with an object
-    #     if np.abs(angle - np.pi/2) < 1e-03 or \
-    #         np.abs(angle - 3*np.pi/2) < 1e-03:
-    #         # vertical line
-    #         M = obj_r*obj_r - (self.x-obj_x)*(self.x-obj_x)
-
-    #         if M < 0.0:
-    #             # no real solution
-    #             return None
-
-    #         x1 = self.x
-    #         x2 = self.x
-    #         y1 = obj_y - np.sqrt(M)
-    #         y2 = obj_y + np.sqrt(M)
-    #     else:
-    #         K = np.tan(angle)
-    #         a = 1 + K*K
-    #         b = 2*K*(self.y-K*self.x-obj_y)-2*obj_x
-    #         c = obj_x*obj_x + \
-    #             (self.y-K*self.x-obj_y)*(self.y-K*self.x-obj_y) - \
-    #             obj_r*obj_r
-    #         delta = b*b - 4*a*c
-
-    #         if delta < 0.0:
-    #             # no real solution
-    #             return None
-
-    #         x1 = (-b-np.sqrt(delta))/(2*a)
-    #         x2 = (-b+np.sqrt(delta))/(2*a)
-    #         y1 = self.y+K*(x1-self.x)
-    #         y2 = self.y+K*(x2-self.x)
-
-    #     v1 = np.array([x1-self.x,y1-self.y])
-    #     v2 = np.array([x2-self.x,y2-self.y])
-
-    #     v = v1 if np.linalg.norm(v1) < np.linalg.norm(v2) else v2
-    #     if np.linalg.norm(v) > self.perception.range:
-    #         # beyond detection range
-    #         return None
-    #     if np.dot(v,np.array([np.cos(angle),np.sin(angle)])) < 0.0:
-    #         # the intersection point is in the opposite direction of the beam
-    #         return None
-
-    #     return v
-
     def check_detection(self, obj_x, obj_y, obj_r):
         proj_pos = self.project_to_robot_frame(np.array([obj_x, obj_y]), False)
 
@@ -429,122 +451,9 @@ class Robot:
                 theta_r = theta_0_to_2pi(robot.theta - self.theta)
                 new_obs = list([pos_r[0], pos_r[1], v_r[0], v_r[1], theta_r, j])
                 self.perception.observation["dynamic"].append(new_obs)
-                # if j in self.perception.observation["dynamic"].copy().keys():
-                #     self.perception.observation["dynamic"][j].append(new_obs)
-                #     while len(self.perception.observation["dynamic"][j]) > self.perception.len_obs_history:
-                #         del self.perception.observation["dynamic"][j][0]
-                # else:
-                #     self.perception.observation["dynamic"][j] = [new_obs]
-
-        # for rel_a in self.perception.beam_angles:
-        #     angle = self.theta + rel_a
-
-        #     # initialize the beam reflection as null
-        #     # if a beam does not have reflection, set the reflection point distance
-        #     # twice as long as the beam range, and set indicator to 0
-        #     if np.abs(angle - np.pi/2) < 1e-03 or \
-        #         np.abs(angle - 3*np.pi/2) < 1e-03:
-        #         d = 2.0 if np.abs(angle - np.pi/2) < 1e-03 else -2.0
-        #         x = self.x
-        #         y = self.y + d*self.perception.range
-        #     else:
-        #         d = 2.0
-        #         x = self.x + d * self.perception.range * np.cos(angle)
-        #         y = self.y + d * self.perception.range * np.sin(angle)
-
-        #     self.perception.reflections.append([x,y,0,-1])
-
-        #     # compute the beam reflection from static obstcales 
-        #     reflection_dist = np.infty  
-        #     for i,obs in enumerate(obstacles):
-
-        #         p = self.compute_intersection(angle,obs.x,obs.y,obs.r)
-
-        #         if p is None:
-        #             continue
-
-        #         if self.perception.reflections[-1][-1] != 0:
-        #             # check if the current intersection point is closer
-        #             if np.linalg.norm(p) >= reflection_dist: 
-        #                 continue
-
-        #         reflection_dist = np.linalg.norm(p)
-        #         self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,1,i]
-
-        #     # compute the beam reflection from dynamic objects
-        #     for j,robot in enumerate(robots):
-        #         if robot is self:
-        #             continue
-        #         if robot.reach_goal:
-        #             # This robot is in the deactivate state, and abscent from the current map
-        #             continue
-
-        #         p = self.compute_intersection(angle,robot.x,robot.y,robot.detect_r)
-
-        #         if p is None:
-        #             continue
-
-        #         if self.perception.reflections[-1][-1] != 0:
-        #             # check if the current intersection point is closer
-        #             if np.linalg.norm(p) >= reflection_dist: 
-        #                 continue
-
-        #         reflection_dist = np.linalg.norm(p)
-        #         self.perception.reflections[-1] = [p[0]+self.x,p[1]+self.y,2,j]
-
-        #     tp = self.perception.reflections[-1][2]
-        #     idx = self.perception.reflections[-1][-1]
-
-        #     if tp == 1:
-        #         if idx not in self.perception.observed_obs:
-        #             # add the new static object observation into the observation
-        #             self.perception.observed_obs.append(idx)
-        #             obs = obstacles[idx]
-
-        #             if not collision:
-        #                 collision = self.check_collision(obs.x,obs.y,obs.r)
-
-        #             pos_r = self.project_to_robot_frame(np.array([obs.x,obs.y]),False)
-        #             self.perception.observation["static"].append([pos_r[0],pos_r[1],obs.r])
-
-        #     elif tp == 2 and self.cooperative:
-        #         if idx not in self.perception.observed_objs:
-        #             # In a cooperative agent, also include dynamic object observation
-        #             self.perception.observed_objs.append(idx)
-        #             robot = robots[idx]
-        #             assert robot.reach_goal is False, "robots that reach goal must be removed!"
-
-        #             if not collision:
-        #                 collision = self.check_collision(robot.x,robot.y,obs.r)
-
-        #             pos_r = self.project_to_robot_frame(np.array([robot.x,robot.y]),False)
-        #             v_r = self.project_to_robot_frame(robot.velocity)
-        #             new_obs = list(np.concatenate((pos_r,v_r)))
-        #             if idx in self.perception.observation["dynamic"].copy().keys():
-        #                 self.perception.observation["dynamic"][idx].append(new_obs)
-        #                 while len(self.perception.observation["dynamic"][idx]) > self.perception.len_obs_history:
-        #                     del self.perception.observation["dynamic"][idx][0]
-        #             else:
-        #                 self.perception.observation["dynamic"][idx] = [new_obs]
-
-        # if self.cooperative:
-        #     for idx in self.perception.observation["dynamic"].copy().keys():
-        #         if idx not in self.perception.observed_objs:
-        #             # remove the observation history if the object is not observed in the current step
-        #             del self.perception.observation["dynamic"][idx]
-
         self_state = copy.deepcopy(self.perception.observation["self"])
         static_states = copy.deepcopy(self.perception.observation["static"])
         if self.cooperative:
-            # remove object indices 
-            # dynamic_states = copy.deepcopy(list(self.perception.observation["dynamic"].values()))
-            # idx_array = []
-            # for idx, obs_history in enumerate(dynamic_states):
-            #     # pad the dynamic observation and save the indices of exact lastest element
-            #     idx_array.append([idx, len(obs_history) - 1])
-            #     while len(obs_history) < self.perception.len_obs_history:
-            #         obs_history.append([0., 0., 0., 0.])
-            # obs = (self_state, static_states, dynamic_states, idx_array)
             dynamic_states = copy.deepcopy(self.perception.observation["dynamic"])
             obs = (self_state, static_states, dynamic_states)
             return obs, collision, self.reach_goal
