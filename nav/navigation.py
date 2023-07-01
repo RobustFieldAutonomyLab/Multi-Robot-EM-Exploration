@@ -1,6 +1,8 @@
+import copy
+
 import numpy as np
 import gtsam
-from nav.utils import get_symbol
+from nav.utils import get_symbol, world_to_local_values
 
 DEBUG_NAV = False
 
@@ -108,6 +110,8 @@ class LandmarkSLAM:
 
     def get_landmark_list(self, origin):
         # return: [[id, x, y], ...]
+        if origin is None:
+            origin = [0, 0, 0]
         landmark_list = []
         # print(origin)
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
@@ -119,21 +123,14 @@ class LandmarkSLAM:
                     landmark_list.append([key, position_this[0], position_this[1]])
         return landmark_list
 
-    def get_result(self, origin):
-        result = gtsam.Values()
-        origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
-        for key in self.result.keys():
-            if key < ord('a'):
-                landmark_position = self.result.atPoint2(key)
-                if landmark_position is not None:
-                    result.insert(key, origin_pose.transformFrom(landmark_position))
-            else:
-                robot_pose = self.result.atPose2(key)
-                if robot_pose is not None:
-                    result.insert(key, origin_pose.compose(robot_pose))
-        return result
+    def get_result(self, origin=None):
+        if origin is None:
+            origin = [0, 0, 0]
+        return world_to_local_values(self.result, origin)
 
-    def get_latest_state(self, origin):
+    def get_latest_state(self, origin=None):
+        if origin is None:
+            origin = [0, 0, 0]
         state_list = [[] for _ in range(len(self.idx))]
         origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
         for i, key_int in enumerate(self.idx):
@@ -142,6 +139,17 @@ class LandmarkSLAM:
             state_list[i] = origin_pose.compose(pose)
         return state_list
 
+    def get_last_key_state_pair(self, origin=None):
+        if origin is None:
+            origin = [0, 0, 0]
+        state_list = [[] for _ in range(len(self.idx))]
+        origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
+        key_list = copy.deepcopy(self.idx)
+        for i, key_int in enumerate(key_list):
+            key = get_symbol(i, key_int)
+            pose = self.result.atPose2(key)
+            state_list[i] = origin_pose.compose(pose)
+        return key_list, state_list
 
     def init_SLAM(self, robot_id, obs_robot):
         if robot_id == 0:
@@ -219,3 +227,6 @@ class LandmarkSLAM:
 
     def get_marginal(self):
         return self.marginals
+
+    def get_isam(self):
+        return self.isam

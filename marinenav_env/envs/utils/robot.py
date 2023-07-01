@@ -1,34 +1,6 @@
 import numpy as np
 import copy
-
-
-def theta_0_to_2pi(theta):
-    while theta < 0.0:
-        theta += 2 * np.pi
-    while theta >= 2 * np.pi:
-        theta -= 2 * np.pi
-    return theta
-
-
-def world_to_local(x, y, theta, origin):
-    # compute transformation from world frame to robot frame
-    R_wr, t_wr = pose_vector_to_matrix(origin[0], origin[1], origin[2])
-    R_rw = np.transpose(R_wr)
-    t_rw = -R_rw * t_wr
-
-    R_this, t_this = pose_vector_to_matrix(x, y, theta)
-    t_this = R_rw * t_this + t_rw
-
-    return t_this[0, 0], t_this[1, 0], theta_0_to_2pi(theta - origin[2])
-
-
-def pose_vector_to_matrix(x, y, theta):
-    # compose matrix expression of pose vector
-    R_rw = np.matrix([[np.cos(theta), -np.sin(theta)],
-                      [np.sin(theta), np.cos(theta)]])
-    t_rw = np.matrix([[x], [y]])
-
-    return R_rw, t_rw
+from nav.utils import theta_0_to_2pi, pose_vector_to_matrix, world_to_local
 
 
 class Perception:

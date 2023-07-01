@@ -1,5 +1,6 @@
 import marinenav_env.envs.marinenav_env as marinenav_env
 import numpy as np
+import gtsam
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -50,7 +51,7 @@ class ExpVisualizer:
         param_frontier["num_robot"] = self.env.num_cooperative
         self.frontier_generator = FrontierGenerator(param_frontier)
 
-        self.slam_result = []
+        self.slam_result = gtsam.Values()
         self.landmark_list = []
 
         self.cnt = 0
@@ -333,10 +334,10 @@ class ExpVisualizer:
                                                           self.landmark_list, self.axis_grid)
         if explored_ratio > self.exploration_terminate_ratio:
             return True, [[None] * self.env.num_cooperative]
-        if DEBUG_EXP_MAX:
-            self.test_generate_virtual_waypoints(self.landmark_slam.get_latest_state([init_x, init_y,
-                                                                                      self.env.robots[0].init_theta]))
-        return False, self.frontier_generator.choose()
+
+        return False, self.frontier_generator.choose(self.landmark_slam.get_landmark_list(),
+                                                     self.landmark_slam.get_isam(),
+                                                     self.landmark_slam.get_last_key_state_pair(),self.axis_grid)
 
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
@@ -354,16 +355,3 @@ class ExpVisualizer:
                             marker='.', linestyle='-', color=self.color_list[robot_id],
                             alpha=0.3, linewidth=.5)
 
-    def test_generate_virtual_waypoints(self, state_list):
-        self.axis_grid.cla()
-        emt = ExpectationMaximizationTrajectory()
-        for frontier in self.frontier_generator.frontiers.values():
-            for robot_id in frontier.connected_robot:
-                virtual_waypoints = emt.generate_virtual_waypoints(
-                    state_list[robot_id], frontier.position)
-                self.draw_virtual_waypoints(virtual_waypoints, robot_id)
-            for robot_pair in frontier.connected_robot_pair:
-                for robot_id in robot_pair:
-                    virtual_waypoints = emt.generate_virtual_waypoints(
-                        state_list[robot_id], frontier.position)
-                    self.draw_virtual_waypoints(virtual_waypoints, 5)
