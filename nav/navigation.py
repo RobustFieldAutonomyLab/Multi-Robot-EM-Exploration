@@ -11,6 +11,7 @@ class LandmarkSLAM:
     def __init__(self):
         # Create a factor graph to hold the constraints
         self.graph = gtsam.NonlinearFactorGraph()
+        self.initial_recorded = gtsam.Values()
         self.initial = gtsam.Values()
         self.result = gtsam.Values()
         self.marginals = []
@@ -76,7 +77,7 @@ class LandmarkSLAM:
     def optimize(self):
         # optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.initial, self.parameters)
         # result = optimizer.optimize()
-
+        self.initial_recorded.insert(self.initial)
         self.isam.update(self.graph, self.initial)
         self.graph.resize(0)
         self.initial.clear()
@@ -108,7 +109,7 @@ class LandmarkSLAM:
             pose2_list[i, 2] = pose.theta()
         return pose2_list
 
-    def get_landmark_list(self, origin):
+    def get_landmark_list(self, origin=None):
         # return: [[id, x, y], ...]
         if origin is None:
             origin = [0, 0, 0]
@@ -229,4 +230,4 @@ class LandmarkSLAM:
         return self.marginals
 
     def get_isam(self):
-        return self.isam
+        return self.isam.getFactorsUnsafe(), self.initial_recorded

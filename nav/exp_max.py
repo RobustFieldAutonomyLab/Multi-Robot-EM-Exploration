@@ -9,7 +9,7 @@ import copy
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
-from nav.frontier import FrontierGenerator, ExpectationMaximizationTrajectory
+from nav.frontier import FrontierGenerator, DEBUG_EM
 
 DEBUG_EXP_MAX = False
 
@@ -47,8 +47,11 @@ class ExpVisualizer:
         self.color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
 
         param_frontier = self.virtual_map.get_parameters()
-        param_frontier["nearest_frontier_flag"] = True
         param_frontier["num_robot"] = self.env.num_cooperative
+        param_frontier["origin"] = [self.env.robots[0].start[0],
+                                    self.env.robots[0].start[1],
+                                    self.env.robots[0].init_theta]
+        param_frontier["nearest_frontier_flag"] = True
         self.frontier_generator = FrontierGenerator(param_frontier)
 
         self.slam_result = gtsam.Values()
@@ -68,7 +71,7 @@ class ExpVisualizer:
         self.plot_graph(self.axis_graph)
 
     def plot_grid(self, axis, probability=True, information=False):
-        if not DEBUG_EXP_MAX:
+        if not DEBUG_EXP_MAX and not DEBUG_EM:
             axis.cla()
         if probability:
             data = self.virtual_map.get_probability_matrix()

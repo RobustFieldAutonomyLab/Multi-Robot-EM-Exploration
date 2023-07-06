@@ -50,10 +50,16 @@ class Odometry:
         self.theta_old = None
         self.observation = [0, 0, 0]
 
-    def reset(self, x0, y0, theta0):
-        self.x_old = x0
-        self.y_old = y0
-        self.theta_old = theta0
+    def reset(self, x0, y0=None, theta0=None):
+        if y0 == None and theta0 == None:
+            self.x_old = x0[0]
+            self.y_old = x0[1]
+            self.theta_old = x0[2]
+
+        else:
+            self.x_old = x0
+            self.y_old = y0
+            self.theta_old = theta0
 
     def add_noise(self, x_new, y_new, theta_new):
         if self.x_old is None:

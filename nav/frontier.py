@@ -9,7 +9,7 @@ from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, Ro
 from nav.utils import get_symbol, point_to_local, world_to_local_values
 
 DEBUG_FRONTIER = False
-DEBUG_EM = False
+DEBUG_EM = True
 
 
 class Frontier:
@@ -188,17 +188,19 @@ class FrontierGenerator:
                                                 robot_state_idx_position=robot_state_idx_position_local,
                                                 landmarks=landmark_list_local,
                                                 isam=isam)
+        if DEBUG_EM:
+            axis.cla()
         for robot_id in range(self.num_robot):
             for frontier in self.frontiers.values():
                 for id_pair in frontier.connected_robot_pair:
                     if robot_id in id_pair:
                         # transform frontier position to SLAM frame
-                        fp = point_to_local((frontier.position[0], frontier.position[1]), self.origin)
-                        emt.do(robot_id, fp, self.origin, axis)
+                        fp = point_to_local(frontier.position[0], frontier.position[1], self.origin)
+                        emt.do(robot_id=robot_id, frontier_position=fp, origin=self.origin, axis=axis)
                 if robot_id in frontier.connected_robot:
                     # transform frontier position to SLAM frame
-                    fp = point_to_local((frontier.position[0], frontier.position[1]), self.origin)
-                    emt.do(robot_id, fp, self.origin, axis)
+                    fp = point_to_local(frontier.position[0], frontier.position[1], self.origin)
+                    emt.do(robot_id=robot_id, frontier_position=fp, origin=self.origin, axis=axis)
 
         return goals
 
@@ -222,7 +224,7 @@ class FrontierGenerator:
 
 # Everything in SLAM frame in ExpectationMaximizationTrajectory
 class ExpectationMaximizationTrajectory:
-    def __init__(self, radius, robot_state_idx_position, landmarks, isam: gtsam.ISAM2):
+    def __init__(self, radius, robot_state_idx_position, landmarks, isam: tuple):
         # for odometry measurement
         self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
 
@@ -235,9 +237,15 @@ class ExpectationMaximizationTrajectory:
         # radius for generate virtual landmark and virtual inter-robot observation
         self.radius = radius
 
-        self.landmarks = landmarks
+        self.landmarks_position = [[item[1], item[2]] for item in landmarks]
+        self.landmarks_id = [item[0] for item in landmarks]
 
-        self.isam = isam
+        params = gtsam.ISAM2Params()
+        params.setFactorization("QR")
+        self.isam = gtsam.ISAM2(params)
+        self.isam.update(isam[0], isam[1])
+
+        self.new_factor_start_index = self.isam.getVariableIndex().nFactors()
 
         self.robot_state_idx = robot_state_idx_position[0]
         self.robot_state_position = robot_state_idx_position[1]
@@ -263,7 +271,7 @@ class ExpectationMaximizationTrajectory:
 
         waypoints = np.linspace(state_0, state_1, step)
 
-        return waypoints
+        return waypoints.tolist()
 
     def odometry_measurement_gtsam_format(self, measurement, robot_id=None, id0=None, id1=None):
         return gtsam.BetweenFactorPose2(get_symbol(robot_id, id0), get_symbol(robot_id, id1),
@@ -306,14 +314,14 @@ class ExpectationMaximizationTrajectory:
                                     gtsam.Pose2(waypoint[0], waypoint[1], waypoint[2]))
 
             # calculate Euclidean distance between waypoint and landmarks
-            distances = cdist([waypoint[0:2]], self.landmarks[:, 1:3], metric='euclidean')[0]
+            distances = cdist([waypoint[0:2]], self.landmarks_position, metric='euclidean')[0]
             landmark_indices = np.argwhere(distances < self.radius)
             if landmark_indices != []:
                 # add landmark observation factor
                 for landmark_index in landmark_indices:
-                    landmark_this = self.landmarks[landmark_index]
+                    landmark_this = self.landmarks_position[landmark_index]
                     # calculate range and bearing
-                    rb = range_bearing_factory.add_noise_point_based(waypoint, landmark_this[2:3])
+                    rb = range_bearing_factory.add_noise_point_based(waypoint, landmark_this)
                     graph.add(self.landmark_measurement_gtsam_format(bearing=rb[1], range=rb[0],
                                                                      robot_id=robot_id,
                                                                      id0=id_initial + i,
@@ -373,22 +381,28 @@ class ExpectationMaximizationTrajectory:
 
     def optimize_virtual_observation_graph(self, graph: gtsam.NonlinearFactorGraph, initial_estimate: gtsam.Values):
         # optimize the graph
-        isam_copy = copy.deepcopy(self.isam)
+        # helps nothing but remind me to delete everything after using
+        isam_copy = self.isam
         isam_copy.update(graph, initial_estimate)
         result = isam_copy.calculateEstimate()
+        factor_index_now = isam_copy.getVariableIndex().nFactors()
+        factors_to_remove = list(range(self.new_factor_start_index, factor_index_now))
+        isam_copy.update(gtsam.NonlinearFactorGraph(), gtsam.Values(), factors_to_remove)
         return result
 
     def do(self, frontier_position, robot_id, origin, axis):
-        graph, initial_estimate = self.generate_virtual_observation_graph(frontier_position, robot_id)
+        graph, initial_estimate = self.generate_virtual_observation_graph(frontier_position=frontier_position,
+                                                                          robot_id=robot_id)
         result = self.optimize_virtual_observation_graph(graph, initial_estimate)
-
+        scatters_x = []
+        scatters_y = []
         # draw the optimized result
         if DEBUG_EM:
             result = world_to_local_values(result, origin)
             for key in result.keys():
                 if key < ord('a'):
-                    axis.scatter(result.atPoint2(key)[0], result.atPoint2(key)[1], c='r', marker='^')
+                    axis.scatter(result.atPoint2(key)[0], result.atPoint2(key)[1], c='r', marker='o')
                 else:
-                    self.axis_grid.plot(result.atPose2().x(), result.atPose2().y(),
-                                        marker='.', linestyle='-',
-                                        alpha=0.3, linewidth=.5)
+                    scatters_x.append(result.atPose2(key).x())
+                    scatters_y.append(result.atPose2(key).y())
+            axis.scatter(scatters_x, scatters_y, c='b', marker='.', alpha = 0.1)
