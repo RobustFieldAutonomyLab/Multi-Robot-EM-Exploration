@@ -6,7 +6,7 @@ from scipy.linalg import cho_factor, cho_solve
 import copy
 
 from marinenav_env.envs.utils.robot import RangeBearingMeasurement
-
+import time
 
 def prob_to_logodds(p):
     return math.log(p / (1.0 - p))
@@ -54,9 +54,9 @@ class VirtualLandmark:
     def reset_information(self, information=None):
         if information is None:
             init_information = np.array([[1 / (self.sigma ** 2), 0], [0, 1 / (self.sigma ** 2)]])
-            self.information = copy.deepcopy(init_information)
+            self.information = init_information
         else:
-            self.information = copy.deepcopy(information)
+            self.information = information
 
     def update_information_weighted(self, information):
         I_0 = self.information
@@ -146,13 +146,13 @@ class OccupancyMap:
 
 
 def get_range_pose_point(pose, point):
-    t_ = np.array([pose.x(), pose.y()])
+    t_ = pose[:2]
     d = point - t_
     r = np.linalg.norm(d)
     D_r_d = d / r
 
-    c_p = np.cos(pose.theta())
-    s_p = np.sin(pose.theta())
+    c_p = np.cos(pose[2])
+    s_p = np.sin(pose[2])
 
     D_d_pose = np.array([[-c_p, s_p, 0.0],
                          [-s_p, -c_p, 0.0]])
@@ -162,13 +162,18 @@ def get_range_pose_point(pose, point):
     return r, Hpose, Hpoint
 
 
-def get_bearing_pose_point(pose, point):
-    theta = pose.theta()
-    d, D_d_pose, D_d_point = unrotate(theta, point - pose.translation())
-    result, D_result_d = relative_bearing(d)
-    Hpose = np.matmul(D_result_d, D_d_pose)
-    Hpoint = np.matmul(D_result_d, D_d_point)
-    return result, Hpose, Hpoint
+def get_bearing_pose_point(pose, point, jacobian=True):
+    if jacobian:
+        theta = pose[2]
+        d, D_d_pose, D_d_point = unrotate(theta, point - pose[:2])
+        result, D_result_d = relative_bearing(d)
+        Hpose = np.matmul(D_result_d, D_d_pose)
+        Hpoint = np.matmul(D_result_d, D_d_point)
+        return result, Hpose, Hpoint
+    else:
+        theta = pose[2]
+        d, _, _ = unrotate(theta, point - pose[:2])
+        return relative_bearing(d)
 
 
 def unrotate(theta, p):
@@ -180,15 +185,32 @@ def unrotate(theta, p):
     return q, H1, H2
 
 
-def relative_bearing(d):
-    x = d[0]
-    y = d[1]
-    d2 = x ** 2 + y ** 2
-    n = np.sqrt(d2)
-    if np.abs(n) > 1e-5:
-        return gtsam.Rot2.fromCosSin(x / n, y / n).theta(), np.array([-y / d2, x / d2])
+def from_cos_sin(c, s):
+    theta = np.arccos(c)
+    if s < 0:
+        theta = 2 * np.pi - theta
+    return theta
+
+
+def relative_bearing(d, jacobian=True):
+    if jacobian:
+        x = d[0]
+        y = d[1]
+        d2 = x ** 2 + y ** 2
+        n = np.sqrt(d2)
+        if np.abs(n) > 1e-5:
+            return from_cos_sin(x / n, y / n), np.array([-y / d2, x / d2])
+        else:
+            return 0, np.array([0, 0])
     else:
-        return gtsam.Rot2().theta(), np.array([0, 0])
+        x = d[0]
+        y = d[1]
+        d2 = x ** 2 + y ** 2
+        n = np.sqrt(d2)
+        if np.abs(n) > 1e-5:
+            return from_cos_sin(x / n, y / n)
+        else:
+            return 0
 
 
 class VirtualMap:
@@ -257,7 +279,8 @@ class VirtualMap:
             if key < ord('a'):  # landmark case
                 pass
             else:  # robot case
-                self.update_information_robot(slam_result.atPose2(key),
+                pose = slam_result.atPose2(key)
+                self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
                                               marginals.marginalInformation(key))
 
     def find_neighbor_indices(self, point):
@@ -279,11 +302,11 @@ class VirtualMap:
         indices_within = np.where(distances < radius)[0]
         return indices[indices_within]
 
-    def pose_2_point_measurement(self, pose: gtsam.Pose2, point, jacobian: bool):
+    def pose_2_point_measurement(self, pose: np.ndarray, point, jacobian: bool):
         sigmas = np.array([[self.range_bearing_model.sigma_b], [self.range_bearing_model.sigma_r]])
         if not jacobian:
-            bearing = pose.bearing(point).theta()
-            range = pose.range(point)
+            bearing = get_bearing_pose_point(pose, point, False)
+            range = get_range_pose_point(pose, point, False)
             return [bearing, range, sigmas]
             # bearing
             # range
@@ -300,7 +323,7 @@ class VirtualMap:
                     np.concatenate(([Hx_bearing], [Hx_range]), axis=0),
                     np.concatenate(([Hl_bearing], [Hl_range]), axis=0)]
 
-    def predict_virtual_landmark(self, state: gtsam.Pose2, information_matrix,
+    def predict_virtual_landmark(self, state: np.ndarray, information_matrix,
                                  virtual_landmark_position):
         bearing, range, sigmas, Hx, Hl = self.pose_2_point_measurement(state, virtual_landmark_position, True)
         R = np.diag(np.squeeze(sigmas)) ** 2
@@ -311,8 +334,9 @@ class VirtualMap:
         cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
         return np.linalg.inv(cov)
 
-    def update_information_robot(self, state: gtsam.Pose2, information_matrix):
-        indices = self.find_neighbor_indices(np.array([state.x(), state.y()]))
+    def update_information_robot(self, state: np.ndarray, information_matrix):
+        indices = self.find_neighbor_indices(np.array([state[0], state[1]]))
+        time0 = time.time()
         for [i, j] in indices:
             # if self.data[i, j].probability < 0.49:
             #     continue
@@ -323,6 +347,8 @@ class VirtualMap:
             else:
                 self.data[i, j].reset_information(info_this)
                 self.data[i, j].set_updated()
+        time1 = time.time()
+        print(time1 - time0)
 
     def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None):
         self.update_probability(values)

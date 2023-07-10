@@ -8,7 +8,7 @@ from scipy.spatial.distance import cdist
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
 from nav.utils import get_symbol, point_to_local, world_to_local_values
 
-DEBUG_FRONTIER = False
+DEBUG_FRONTIER = True
 DEBUG_EM = True
 
 
