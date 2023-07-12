@@ -4,9 +4,10 @@ import gtsam
 from scipy.spatial.distance import cdist
 from scipy.linalg import cho_factor, cho_solve
 import copy
+import time
 
 from marinenav_env.envs.utils.robot import RangeBearingMeasurement
-import time
+
 
 def prob_to_logodds(p):
     return math.log(p / (1.0 - p))
@@ -39,7 +40,7 @@ class VirtualLandmark:
         self.probability = probability  # probability of being actual landmark
         self.x = x
         self.y = y
-        self.information = []
+        self.information = None
         self.reset_information()
 
     def covariance(self):
@@ -73,7 +74,7 @@ class VirtualLandmark:
             w = float(0)
         else:
             w = float(1)
-        self.information = copy.deepcopy(w * I_0 + (1 - w) * I_1)
+        self.information = w * I_0 + (1 - w) * I_1
 
     def set_updated(self, signal=None):
         if signal is None:
@@ -329,14 +330,15 @@ class VirtualMap:
         R = np.diag(np.squeeze(sigmas)) ** 2
         # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
         # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
-        Hl_Hl_Hl = np.matmul(np.linalg.inv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
+        Hl_Hl_Hl = np.matmul(np.linalg.pinv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
         A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
         cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
-        return np.linalg.inv(cov)
+        # print("cov: ",cov)
+        return np.linalg.pinv(cov)
 
     def update_information_robot(self, state: np.ndarray, information_matrix):
         indices = self.find_neighbor_indices(np.array([state[0], state[1]]))
-        time0 = time.time()
+        # time0 = time.time()
         for [i, j] in indices:
             # if self.data[i, j].probability < 0.49:
             #     continue
@@ -347,8 +349,8 @@ class VirtualMap:
             else:
                 self.data[i, j].reset_information(info_this)
                 self.data[i, j].set_updated()
-        time1 = time.time()
-        print(time1 - time0)
+        # time1 = time.time()
+        # print(time1 - time0)
 
     def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None):
         self.update_probability(values)
@@ -361,3 +363,10 @@ class VirtualMap:
 
     def get_virtual_map(self):
         return self.data
+
+    def get_sum_uncertainty(self):
+        sum_uncertainty = 0.0
+        for i in range(0, self.num_rows):
+            for j in range(0, self.num_cols):
+                sum_uncertainty += np.trace(self.data[i, j].covariance())
+        return sum_uncertainty

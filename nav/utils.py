@@ -36,9 +36,15 @@ def point_to_local(x, y, origin):
     t_rw = -R_rw * t_wr
 
     t_this = R_rw * np.matrix([[x], [y]]) + t_rw
-
     return [t_this[0, 0], t_this[1, 0]]
 
+
+def point_to_world(x, y, theta, origin):
+    # compute transformation from robot frame to world frame
+    R_wr, t_wr = pose_vector_to_matrix(origin[0], origin[1], origin[2])
+
+    t_this = R_wr * np.matrix([[x], [y]]) + t_wr
+    return [t_this[0, 0], t_this[1, 0]]
 
 def world_to_local_values(values: gtsam.Values, origin):
     result = gtsam.Values()

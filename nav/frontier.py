@@ -8,8 +8,8 @@ from scipy.spatial.distance import cdist
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
 from nav.utils import get_symbol, point_to_local, world_to_local_values
 
-DEBUG_FRONTIER = True
-DEBUG_EM = True
+DEBUG_FRONTIER = False
+DEBUG_EM = False
 
 
 class Frontier:
@@ -64,6 +64,8 @@ class FrontierGenerator:
         self.max_visited_neighbor = 2
 
         self.virtual_move_length = 0.5
+
+        self.distance_weight = 10.0e5
 
         self.boundary_ratio = 0.1  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_ratio / self.cell_size * (self.max_x - self.min_x))
@@ -178,7 +180,7 @@ class FrontierGenerator:
                     if robot_id in value.nearest_frontier:
                         return copy.deepcopy(value.position)
 
-    def choose(self, landmark_list_local, isam: gtsam.ISAM2, robot_state_idx_position_local, axis=None):
+    def choose(self, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
         goals = [[] for _ in range(self.num_robot)]
         if self.nearest_frontier_flag:
             for i in range(0, self.num_robot):
@@ -191,7 +193,8 @@ class FrontierGenerator:
         if DEBUG_EM:
             axis.cla()
         for robot_id in range(self.num_robot):
-            for frontier in self.frontiers.values():
+            cost_list = []
+            for key, frontier in self.frontiers.items():
                 for id_pair in frontier.connected_robot_pair:
                     if robot_id in id_pair:
                         # transform frontier position to SLAM frame
@@ -200,8 +203,14 @@ class FrontierGenerator:
                 if robot_id in frontier.connected_robot:
                     # transform frontier position to SLAM frame
                     fp = point_to_local(frontier.position[0], frontier.position[1], self.origin)
-                    emt.do(robot_id=robot_id, frontier_position=fp, origin=self.origin, axis=axis)
-
+                    # return the transformed virtual SLAM result for the calculation of the information of virtual map
+                    result, marginals = emt.do(robot_id=robot_id, frontier_position=fp, origin=self.origin, axis=axis)
+                    # no need to reset, since the update_information will reset the virtual map
+                    virtual_map.update_information(result, marginals)
+                    uncertainty = virtual_map.get_sum_uncertainty()
+                    cost_list.append((key, uncertainty))
+                    # TODO: Add distance cost
+            print(cost_list)
         return goals
 
     def return_frontiers_position(self, robot_id):
@@ -385,24 +394,31 @@ class ExpectationMaximizationTrajectory:
         isam_copy = self.isam
         isam_copy.update(graph, initial_estimate)
         result = isam_copy.calculateEstimate()
+        marginals = gtsam.Marginals(isam_copy.getFactorsUnsafe(), result)
+
+        # Delete the virtual observation factors from this iteration
         factor_index_now = isam_copy.getVariableIndex().nFactors()
         factors_to_remove = list(range(self.new_factor_start_index, factor_index_now))
         isam_copy.update(gtsam.NonlinearFactorGraph(), gtsam.Values(), factors_to_remove)
-        return result
+        return result, marginals
 
     def do(self, frontier_position, robot_id, origin, axis):
+        # return the optimized trajectories of the robots and the marginals for calculation of information  matrix
         graph, initial_estimate = self.generate_virtual_observation_graph(frontier_position=frontier_position,
                                                                           robot_id=robot_id)
-        result = self.optimize_virtual_observation_graph(graph, initial_estimate)
-        scatters_x = []
-        scatters_y = []
+        result, marginals = self.optimize_virtual_observation_graph(graph, initial_estimate)
+        result = world_to_local_values(result, origin)
+
         # draw the optimized result
         if DEBUG_EM:
-            result = world_to_local_values(result, origin)
+            scatters_x = []
+            scatters_y = []
             for key in result.keys():
                 if key < ord('a'):
                     axis.scatter(result.atPoint2(key)[0], result.atPoint2(key)[1], c='r', marker='o')
                 else:
                     scatters_x.append(result.atPose2(key).x())
                     scatters_y.append(result.atPose2(key).y())
-            axis.scatter(scatters_x, scatters_y, c='b', marker='.', alpha = 0.1)
+            axis.scatter(scatters_x, scatters_y, c='b', marker='.', alpha=0.1)
+
+        return result, marginals

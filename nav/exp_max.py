@@ -340,7 +340,9 @@ class ExpVisualizer:
 
         return False, self.frontier_generator.choose(self.landmark_slam.get_landmark_list(),
                                                      self.landmark_slam.get_isam(),
-                                                     self.landmark_slam.get_last_key_state_pair(),self.axis_grid)
+                                                     self.landmark_slam.get_last_key_state_pair(),
+                                                     self.virtual_map,
+                                                     self.axis_grid)
 
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
