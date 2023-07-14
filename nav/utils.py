@@ -46,6 +46,7 @@ def point_to_world(x, y, theta, origin):
     t_this = R_wr * np.matrix([[x], [y]]) + t_wr
     return [t_this[0, 0], t_this[1, 0]]
 
+
 def world_to_local_values(values: gtsam.Values, origin):
     result = gtsam.Values()
     origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])

@@ -13,8 +13,13 @@ DEBUG_EM = False
 
 
 class Frontier:
-    def __init__(self, position, relative=None, robot_id=None, nearest_frontier=False):
+    def __init__(self, position, origin=None, relative=None, robot_id=None, nearest_frontier=False):
         self.position = position
+        # relative position in SLAM framework
+        self.position_local = None
+        if origin is not None:
+            self.position_local = point_to_local(position[0], position[1], origin)
+
         self.nearest_frontier = []
         if nearest_frontier and (robot_id is not None):
             self.nearest_frontier.append(robot_id)
@@ -65,7 +70,7 @@ class FrontierGenerator:
 
         self.virtual_move_length = 0.5
 
-        self.distance_weight = 10.0e5
+        self.distance_weight = 100
 
         self.boundary_ratio = 0.1  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_ratio / self.cell_size * (self.max_x - self.min_x))
@@ -134,7 +139,10 @@ class FrontierGenerator:
                 self.frontiers[index_this].nearest_frontier.append(i)
                 self.frontiers[index_this].connected_robot.append(i)
             else:
-                self.frontiers[index_this] = Frontier(position_this, robot_id=i, nearest_frontier=True)
+                self.frontiers[index_this] = Frontier(position_this,
+                                                      origin=self.origin,
+                                                      robot_id=i,
+                                                      nearest_frontier=True)
 
             if i == 0:
                 continue
@@ -144,7 +152,7 @@ class FrontierGenerator:
                 for index_this in indices_rendezvous:
                     if index_this not in self.frontiers:
                         position_this = self.index_2_position(indices[index_this])
-                        self.frontiers[index_this] = Frontier(position_this)
+                        self.frontiers[index_this] = Frontier(position_this, origin=self.origin)
                     self.frontiers[index_this].add_robot_connection_pair(j, i)
 
         state_list_array = [[state.x(), state.y()] for state in state_list]
@@ -158,7 +166,7 @@ class FrontierGenerator:
             if index_this in self.frontiers:
                 self.frontiers[index_this].add_relative(landmark[0])
             else:
-                self.frontiers[index_this] = Frontier(position_this, relative=landmark[0])
+                self.frontiers[index_this] = Frontier(position_this, origin=self.origin, relative=landmark[0])
             distances = cdist([position_this], state_list_array, metric='euclidean')[0]
             if not self.one_robot_per_landmark_frontier:
                 connected_robots = np.argwhere(
@@ -178,40 +186,84 @@ class FrontierGenerator:
             if value.connected_robot:
                 if value.nearest_frontier is not None:
                     if robot_id in value.nearest_frontier:
-                        return copy.deepcopy(value.position)
+                        return value.position
 
     def choose(self, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
         goals = [[] for _ in range(self.num_robot)]
         if self.nearest_frontier_flag:
             for i in range(0, self.num_robot):
                 goals[i] = self.find_frontier_nearest_neighbor(i)
-            # return goals
+            return goals
+
         emt = ExpectationMaximizationTrajectory(radius=self.radius,
                                                 robot_state_idx_position=robot_state_idx_position_local,
                                                 landmarks=landmark_list_local,
                                                 isam=isam)
-        if DEBUG_EM:
+        is_goal_decided = [False for _ in range(self.num_robot)]
+        if DEBUG_FRONTIER:
             axis.cla()
         for robot_id in range(self.num_robot):
+            if is_goal_decided[robot_id]:
+                continue
             cost_list = []
             for key, frontier in self.frontiers.items():
                 for id_pair in frontier.connected_robot_pair:
                     if robot_id in id_pair:
-                        # transform frontier position to SLAM frame
-                        fp = point_to_local(frontier.position[0], frontier.position[1], self.origin)
-                        emt.do(robot_id=robot_id, frontier_position=fp, origin=self.origin, axis=axis)
+                        result, marginals = emt.do(robot_id=id_pair,
+                                                   frontier_position=(frontier.position_local, frontier.position_local),
+                                                   origin=self.origin,
+                                                   axis=axis)
+                        cost_this = self.calculate_cost(virtual_map, result, marginals,
+                                                        (robot_state_idx_position_local[1][id_pair[0]],
+                                                         robot_state_idx_position_local[1][id_pair[1]]),
+                                                        frontier.position_local)
+                        if id_pair[0] == robot_id:
+                            cost_list.append((key, cost_this, id_pair[1]))
+                        else:
+                            cost_list.append((key, cost_this, id_pair[0]))
                 if robot_id in frontier.connected_robot:
-                    # transform frontier position to SLAM frame
-                    fp = point_to_local(frontier.position[0], frontier.position[1], self.origin)
                     # return the transformed virtual SLAM result for the calculation of the information of virtual map
-                    result, marginals = emt.do(robot_id=robot_id, frontier_position=fp, origin=self.origin, axis=axis)
+                    result, marginals = emt.do(robot_id=robot_id,
+                                               frontier_position=frontier.position_local,
+                                               origin=self.origin,
+                                               axis=axis)
                     # no need to reset, since the update_information will reset the virtual map
-                    virtual_map.update_information(result, marginals)
-                    uncertainty = virtual_map.get_sum_uncertainty()
-                    cost_list.append((key, uncertainty))
-                    # TODO: Add distance cost
-            print(cost_list)
+                    cost_this = self.calculate_cost(virtual_map, result, marginals,
+                                                    robot_state_idx_position_local[1][robot_id],
+                                                    frontier.position_local)
+                    cost_list.append((key, cost_this))
+            if cost_list == []:
+                # if no frontier is available, return the nearest frontier
+                goals[robot_id] = self.find_frontier_nearest_neighbor(robot_id)
+            else:
+                min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
+                goals[robot_id] = self.frontiers[min_cost[0]].position
+                is_goal_decided[robot_id] = True
+                if len(min_cost) > 2:
+                    goals[min_cost[2]] = self.frontiers[min_cost[0]].position
+                    is_goal_decided[min_cost[2]] = True
+                    # This means the robot is going to a rendezvous point
         return goals
+
+    def calculate_cost(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
+                       robot_p, frontier_p):
+        # robot_position could be a tuple of two robots
+        # calculate the cost of the frontier for a specific robot
+
+        virtual_map.update_information(result, marginals)
+        # TODO: figure out a way to normalize the uncertainty
+        uncertainty = virtual_map.get_sum_uncertainty()
+        # calculate the landmark visitation and new exploration case first
+        if not isinstance(robot_p, tuple):
+            dist_cost = np.sqrt((robot_p.x() - frontier_p[0]) ** 2 + (robot_p.y() - frontier_p[1]) ** 2)
+        else:
+            # if a rendezvous point, calculate the mean cost for both robots
+            dist_cost = np.sqrt((robot_p[0].x() - frontier_p[0]) ** 2 + (robot_p[0].y() - frontier_p[1]) ** 2)
+            dist_cost += np.sqrt((robot_p[1].x() - frontier_p[0]) ** 2 + (robot_p[1].y() - frontier_p[1]) ** 2)
+            dist_cost /= 2
+        if DEBUG_EM:
+            print("uncertainty & distance cost: ", uncertainty, dist_cost)
+        return uncertainty + dist_cost * self.distance_weight
 
     def return_frontiers_position(self, robot_id):
         frontiers = []
@@ -296,13 +348,15 @@ class ExpectationMaximizationTrajectory:
                                         gtsam.Pose2(measurement[0], measurement[1], measurement[2]),
                                         self.robot_noise_model)
 
-    def waypoints2landmark_observations(self, waypoints, robot_id=None):
+    def waypoints2landmark_observations(self, waypoints, robot_id=None, graph=None, initial_estimate=None):
         # waypoints: [[x, y, theta], ...]
         # landmarks: [id, x, y], ...]
         # robot_id: robot id
         # id_initial: index of the first virtual waypoint in the sequence
-        graph = gtsam.NonlinearFactorGraph()
-        initial_estimate = gtsam.Values()
+        if graph is None:
+            graph = gtsam.NonlinearFactorGraph()
+        if initial_estimate is None:
+            initial_estimate = gtsam.Values()
 
         odometry_factory = Odometry(use_noise=False)
         range_bearing_factory = RangeBearingMeasurement(use_noise=False)
@@ -337,16 +391,17 @@ class ExpectationMaximizationTrajectory:
                                                                      idl=landmark_this[0]))
         return graph, initial_estimate
 
-    def waypoints2robot_observation(self, waypoints: tuple, robot_id: tuple):
+    def waypoints2robot_observation(self, waypoints: tuple, robot_id: tuple, graph=None):
         # waypoints: ([[x, y, theta], ...], [[x, y, theta], ...])
         # robot_id: (robot id0, robot id1)
         # id_initial: (index robot0, index robot1)
-        graph = gtsam.NonlinearFactorGraph()
+        if graph is None:
+            graph = gtsam.NonlinearFactorGraph()
         id_initial = (self.robot_state_idx[robot_id[0]], self.robot_state_idx[robot_id[1]])
         robot_neighbor_factory = RobotNeighborMeasurement(use_noise=False)
 
-        waypoints0 = waypoints[0]
-        waypoints1 = waypoints[1]
+        waypoints0 = np.array(waypoints[0])
+        waypoints1 = np.array(waypoints[1])
 
         length0 = len(waypoints0)
         length1 = len(waypoints1)
@@ -355,18 +410,28 @@ class ExpectationMaximizationTrajectory:
             repeat_times = length1 - length0
             repeated_rows = np.repeat(waypoints0[-1:], repeat_times, axis=0)
             waypoints0 = np.concatenate((waypoints0, repeated_rows), axis=0)
-        else:
+        elif length0 > length1:
             repeat_times = length0 - length1
             repeated_rows = np.repeat(waypoints1[-1:], repeat_times, axis=0)
             waypoints1 = np.concatenate((waypoints1, repeated_rows), axis=0)
-        distances = np.linalg.norm(waypoints0[0:2] - waypoints1[0:2], axis=1)
+        distances = np.linalg.norm(waypoints0[:, 0:2] - waypoints1[:, 0:2], axis=1)
         # find out the index of waypoints where robot could observe each other
         robot_indices = np.argwhere(distances < self.radius)
         for robot_index in robot_indices:
             # add robot observation factor
-            measurement = robot_neighbor_factory.add_noise_pose_based(waypoints0[robot_index], waypoints1[robot_index])
+            measurement = robot_neighbor_factory.add_noise_pose_based(waypoints0[robot_index, :].flatten(),
+                                                                      waypoints1[robot_index, :].flatten())
+            if robot_index >= length0:
+                idx0 = id_initial[0] + length0 - 1
+            else:
+                idx0 = id_initial[0] + robot_index
+
+            if robot_index >= length1:
+                idx1 = id_initial[1] + length1 - 1
+            else:
+                idx1 = id_initial[1] + robot_index
             graph.add(self.robot_measurement_gtsam_format(
-                measurement, robot_id, (id_initial[0] + robot_index, id_initial[1] + robot_index)))
+                measurement, robot_id, (idx0, idx1)))
         return graph
 
     def generate_virtual_observation_graph(self, frontier_position, robot_id):
@@ -379,13 +444,11 @@ class ExpectationMaximizationTrajectory:
         else:
             virtual_waypoints = [[] for _ in range(len(frontier_position))]
             for i in range(len(frontier_position)):
-                virtual_waypoints[i] = self.generate_virtual_waypoints(i, frontier_position[i])
-                graph_this, initial_estimate_this = self.waypoints2landmark_observations(virtual_waypoints[i],
-                                                                                         robot_id[i])
-                graph.add(graph_this)
-                initial_estimate.insert(initial_estimate_this)
-            graph_this = self.waypoints2robot_observation(tuple(virtual_waypoints), robot_id)
-            graph.add(graph_this)
+                virtual_waypoints[i] = self.generate_virtual_waypoints(robot_id[i], frontier_position[i])
+                self.waypoints2landmark_observations(virtual_waypoints[i], robot_id[i],
+                                                     graph=graph,
+                                                     initial_estimate=initial_estimate)
+            self.waypoints2robot_observation(tuple(virtual_waypoints), robot_id, graph=graph)
         return graph, initial_estimate
 
     def optimize_virtual_observation_graph(self, graph: gtsam.NonlinearFactorGraph, initial_estimate: gtsam.Values):
@@ -410,7 +473,7 @@ class ExpectationMaximizationTrajectory:
         result = world_to_local_values(result, origin)
 
         # draw the optimized result
-        if DEBUG_EM:
+        if DEBUG_FRONTIER:
             scatters_x = []
             scatters_y = []
             for key in result.keys():

@@ -51,7 +51,7 @@ class ExpVisualizer:
         param_frontier["origin"] = [self.env.robots[0].start[0],
                                     self.env.robots[0].start[1],
                                     self.env.robots[0].init_theta]
-        param_frontier["nearest_frontier_flag"] = True
+        param_frontier["nearest_frontier_flag"] = False
         self.frontier_generator = FrontierGenerator(param_frontier)
 
         self.slam_result = gtsam.Values()
@@ -70,9 +70,7 @@ class ExpVisualizer:
 
         self.plot_graph(self.axis_graph)
 
-    def plot_grid(self, axis, probability=True, information=False):
-        if not DEBUG_EXP_MAX and not DEBUG_EM:
-            axis.cla()
+    def plot_grid(self, axis, probability=True, information=True):
         if probability:
             data = self.virtual_map.get_probability_matrix()
             axis.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
@@ -166,10 +164,13 @@ class ExpVisualizer:
         self.plot_robots()
 
     def reset_goal(self, goal_list):
+        if not DEBUG_EXP_MAX and not DEBUG_EM:
+            self.axis_grid.cla()
         self.env.reset_goal(goal_list)
         for idx, goal in enumerate(goal_list):
             try:
                 self.axis_graph.scatter(goal[0], goal[1], marker=".", color="yellow", s=500, zorder=5)
+                self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
             except:
                 print("idx: ", idx)
                 print("goal: ", goal)
@@ -359,4 +360,3 @@ class ExpVisualizer:
         self.axis_grid.plot(waypoints[:, 0], waypoints[:, 1],
                             marker='.', linestyle='-', color=self.color_list[robot_id],
                             alpha=0.3, linewidth=.5)
-

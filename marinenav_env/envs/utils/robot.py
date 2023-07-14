@@ -178,7 +178,7 @@ class RobotNeighborMeasurement:
         return [x_noisy, y_noisy, theta_noisy]
 
     def add_noise_pose_based(self, pose_local, pose_observed):
-        x_r = np.reshape(np.array(pose_observed[0], pose_observed[1]), (2, 1))
+        x_r = np.reshape(np.array([pose_observed[0], pose_observed[1]]), (2, 1))
 
         R_wr, t_wr = pose_vector_to_matrix(pose_local[0], pose_local[1], pose_local[2])
 

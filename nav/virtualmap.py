@@ -221,7 +221,7 @@ class VirtualMap:
         self.minX = parameters["minX"]
         self.minY = parameters["minY"]
         self.radius = parameters["radius"]
-        self.cell_size = 2  # cell size for virtual map
+        self.cell_size = 5  # cell size for virtual map
         self.num_cols = int(math.floor((self.maxX - self.minX) / self.cell_size))
         self.num_rows = int(math.floor((self.maxY - self.minY) / self.cell_size))
 
