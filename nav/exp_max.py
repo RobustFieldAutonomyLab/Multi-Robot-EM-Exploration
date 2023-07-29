@@ -165,7 +165,7 @@ class ExpVisualizer:
         self.plot_robots()
 
     def reset_goal(self, goal_list):
-        if not DEBUG_EXP_MAX and not DEBUG_EM:
+        if not DEBUG_EXP_MAX:
             self.axis_grid.cla()
         self.env.reset_goal(goal_list)
         for idx, goal in enumerate(goal_list):

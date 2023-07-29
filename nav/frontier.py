@@ -6,10 +6,10 @@ from scipy.ndimage import convolve
 from scipy.spatial.distance import cdist
 
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
-from nav.utils import get_symbol, point_to_local, world_to_local_values
+from nav.utils import get_symbol, point_to_local, world_to_local_values, point_to_world
 
 DEBUG_FRONTIER = False
-DEBUG_EM = True
+DEBUG_EM = False
 
 
 class Frontier:
@@ -280,15 +280,17 @@ class FrontierGenerator:
         u_d = compute_distance(frontier_p, robot_p)
         if DEBUG_EM:
             print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d)
-        return u_m + u_t * self.t_weight - u_d * self.d_weight
+        return u_m - u_t * self.t_weight + u_d * self.d_weight
 
     def compute_utility_task_allocation(self, frontier_p, robot_id):
+        #local frame to global frame
+        frontier_w = point_to_world(frontier_p[0], frontier_p[1], self.origin)
         u_t = 1
         for i, goal_list in enumerate(self.goal_history):
             if i == robot_id:
                 continue
             for goal in goal_list:
-                dist = np.sqrt((goal[0] - frontier_p[0]) ** 2 + (goal[1] - frontier_p[1]) ** 2)
+                dist = np.sqrt((goal[0] - frontier_w[0]) ** 2 + (goal[1] - frontier_w[1]) ** 2)
                 u_t -= self.compute_P_d(dist)
         return u_t
 

@@ -39,7 +39,7 @@ def point_to_local(x, y, origin):
     return [t_this[0, 0], t_this[1, 0]]
 
 
-def point_to_world(x, y, theta, origin):
+def point_to_world(x, y, origin):
     # compute transformation from robot frame to world frame
     R_wr, t_wr = pose_vector_to_matrix(origin[0], origin[1], origin[2])
 
