@@ -79,6 +79,7 @@ class ExpVisualizer:
         self.axis_grid.set_xticks([])
         self.axis_grid.set_yticks([])
         if information:
+            self.virtual_map.update_information(self.slam_result, self.landmark_slam.marginals)
             virtual_map = self.virtual_map.get_virtual_map()
             for i, map_row in enumerate(virtual_map):
                 for j, virtual_landmark in enumerate(map_row):

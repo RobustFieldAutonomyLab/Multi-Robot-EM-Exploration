@@ -67,6 +67,7 @@ class VirtualLandmark:
         b = np.linalg.det(I_1)
         # I_0 * x = I_1 x = I_0^{-1} * I_1
         # c = a * tr(x)
+
         c = a * np.trace(cho_solve(cho_factor(I_0), I_1))
         d = a + b - c
         w = 0.5 * (2 * b - c) / d
@@ -214,6 +215,44 @@ def relative_bearing(d, jacobian=True):
             return 0
 
 
+def pose_2_point_measurement(pose: np.ndarray, point, sigma_b, sigma_r, jacobian: bool):
+    sigmas = np.array([[sigma_b], [sigma_r]])
+    if not jacobian:
+        bearing = get_bearing_pose_point(pose, point, False)
+        range = get_range_pose_point(pose, point, False)
+        return [bearing, range, sigmas]
+        # bearing
+        # range
+        # Sigmas 2 by 1
+    else:
+        bearing, Hx_bearing, Hl_bearing = get_bearing_pose_point(pose, point)
+        range, Hx_range, Hl_range = get_range_pose_point(pose, point)
+        # bearing
+        # range
+        # Sigmas 2 by 1
+        # Hx_bearing_range 2 by 3
+        # Hl_bearing_range 2 by 2
+        return [bearing, range, sigmas,
+                np.concatenate(([Hx_bearing], [Hx_range]), axis=0),
+                np.concatenate(([Hl_bearing], [Hl_range]), axis=0)]
+
+
+def predict_virtual_landmark(state: np.ndarray, information_matrix,
+                             virtual_landmark_position, sigma_range, sigma_bearing):
+    bearing, range, sigmas, Hx, Hl = pose_2_point_measurement(state,
+                                                              virtual_landmark_position,
+                                                              sigma_b=sigma_bearing,
+                                                              sigma_r=sigma_range,
+                                                              jacobian=True)
+    R = np.diag(np.squeeze(sigmas)) ** 2
+    # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
+    # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
+    Hl_Hl_Hl = np.matmul(np.linalg.pinv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
+    A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
+    cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
+    return np.linalg.pinv(cov)
+
+
 class VirtualMap:
     def __init__(self, parameters):
         self.maxX = parameters["maxX"]
@@ -228,6 +267,7 @@ class VirtualMap:
         self.data = np.empty((self.num_rows, self.num_cols), dtype=object)
 
         self.range_bearing_model = RangeBearingMeasurement()
+
         # Initialize occupancy map with unknown grid
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
@@ -276,6 +316,7 @@ class VirtualMap:
     def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals):
         np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
+        time0 = time.time()
         for key in slam_result.keys():
             if key < ord('a'):  # landmark case
                 pass
@@ -283,6 +324,8 @@ class VirtualMap:
                 pose = slam_result.atPose2(key)
                 self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
                                               marginals.marginalInformation(key))
+        time1 = time.time()
+        print("time information: ", time1 - time0)
 
     def find_neighbor_indices(self, point):
         col = (point[0] - self.minX) / self.cell_size
@@ -303,54 +346,22 @@ class VirtualMap:
         indices_within = np.where(distances < radius)[0]
         return indices[indices_within]
 
-    def pose_2_point_measurement(self, pose: np.ndarray, point, jacobian: bool):
-        sigmas = np.array([[self.range_bearing_model.sigma_b], [self.range_bearing_model.sigma_r]])
-        if not jacobian:
-            bearing = get_bearing_pose_point(pose, point, False)
-            range = get_range_pose_point(pose, point, False)
-            return [bearing, range, sigmas]
-            # bearing
-            # range
-            # Sigmas 2 by 1
-        else:
-            bearing, Hx_bearing, Hl_bearing = get_bearing_pose_point(pose, point)
-            range, Hx_range, Hl_range = get_range_pose_point(pose, point)
-            # bearing
-            # range
-            # Sigmas 2 by 1
-            # Hx_bearing_range 2 by 3
-            # Hl_bearing_range 2 by 2
-            return [bearing, range, sigmas,
-                    np.concatenate(([Hx_bearing], [Hx_range]), axis=0),
-                    np.concatenate(([Hl_bearing], [Hl_range]), axis=0)]
-
-    def predict_virtual_landmark(self, state: np.ndarray, information_matrix,
-                                 virtual_landmark_position):
-        bearing, range, sigmas, Hx, Hl = self.pose_2_point_measurement(state, virtual_landmark_position, True)
-        R = np.diag(np.squeeze(sigmas)) ** 2
-        # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
-        # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
-        Hl_Hl_Hl = np.matmul(np.linalg.pinv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
-        A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
-        cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
-        # print("cov: ",cov)
-        return np.linalg.pinv(cov)
-
     def update_information_robot(self, state: np.ndarray, information_matrix):
         indices = self.find_neighbor_indices(np.array([state[0], state[1]]))
-        # time0 = time.time()
         for [i, j] in indices:
             # if self.data[i, j].probability < 0.49:
             #     continue
-            info_this = self.predict_virtual_landmark(state, information_matrix,
-                                                      np.array([self.data[i, j].x, self.data[i, j].y]))
+
+            info_this = predict_virtual_landmark(state,
+                                                 information_matrix,
+                                                 np.array([self.data[i, j].x, self.data[i, j].y]),
+                                                 sigma_range=self.range_bearing_model.sigma_r,
+                                                 sigma_bearing=self.range_bearing_model.sigma_b)
             if self.data[i, j].updated:
                 self.data[i, j].update_information_weighted(info_this)
             else:
                 self.data[i, j].reset_information(info_this)
                 self.data[i, j].set_updated()
-        # time1 = time.time()
-        # print(time1 - time0)
 
     def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None):
         self.update_probability(values)

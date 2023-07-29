@@ -51,7 +51,7 @@ class Odometry:
         self.observation = [0, 0, 0]
 
     def reset(self, x0, y0=None, theta0=None):
-        if y0 == None and theta0 == None:
+        if y0 is None and theta0 is None:
             self.x_old = x0[0]
             self.y_old = x0[1]
             self.theta_old = x0[2]
@@ -98,7 +98,7 @@ class Odometry:
 
 
 class RangeBearingMeasurement:
-    def __init__(self, use_noise = True):
+    def __init__(self, use_noise=True):
         self.use_noise = use_noise
         if use_noise:
             self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
@@ -145,7 +145,7 @@ class RangeBearingMeasurement:
 
 
 class RobotNeighborMeasurement:
-    def __init__(self, use_noise = True):
+    def __init__(self, use_noise=True):
         self.use_noise = use_noise
         if use_noise:
             self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
@@ -170,6 +170,10 @@ class RobotNeighborMeasurement:
             x_noisy = x_obs + np.clip(x_noise, None, self.max_r_error)
             y_noisy = y_obs + np.clip(y_noise, None, self.max_r_error)
             theta_noisy = theta_0_to_2pi(theta_obs + np.clip(b_noise, None, self.max_b_error))
+
+            # x_noisy = x_obs + np.clip(x_noise, None, self.max_r_error) * np.cos(theta_noisy)
+            # y_noisy = y_obs + np.clip(x_noise, None, self.max_r_error) * np.sin(theta_noisy)
+
         else:
             x_noisy = x_obs
             y_noisy = y_obs
@@ -188,7 +192,7 @@ class RobotNeighborMeasurement:
         x_r = R_rw * x_r + t_rw
         x_r.resize((2,))
 
-        return self.add_noise(x_r[0], x_r[1], theta_0_to_2pi(pose_observed[2]-pose_local[2]))
+        return self.add_noise(x_r[0], x_r[1], theta_0_to_2pi(pose_observed[2] - pose_local[2]))
 
 
 class Robot:

@@ -750,7 +750,7 @@ class EnvVisualizer:
         landmark_list = self.landmark_slam.get_landmark_list([init_x, init_y,
                                                               self.env.robots[0].init_theta])
         for landmark_obs in landmark_list:
-            self.axis_grid.plot(landmark_obs[0], landmark_obs[1], '.', color='tab:orange')
+            self.axis_grid.plot(landmark_obs[1], landmark_obs[2], '.', color='tab:orange')
 
     def load_env_config(self, episode_dict):
         episode = copy.deepcopy(episode_dict)
