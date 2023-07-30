@@ -10,8 +10,23 @@ from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator, DEBUG_EM
+from nav.utils import point_to_local, point_to_world
 
 DEBUG_EXP_MAX = False
+
+
+def local_goal_to_world_goal(local_goal_p, local_robot_p, world_robot_p):
+    if isinstance(local_robot_p, gtsam.Pose2):
+        p_local = [local_robot_p.x(), local_robot_p.y(), local_robot_p.theta()]
+    else:
+        p_local = local_robot_p
+    if isinstance(world_robot_p, gtsam.Pose2):
+        p_world = [world_robot_p.x(), world_robot_p.y(), world_robot_p.theta()]
+    else:
+        p_world = world_robot_p
+    trans_p = point_to_local(local_goal_p[0], local_goal_p[1], p_local)
+    world_goal_p = point_to_world(trans_p[0], trans_p[1], p_world)
+    return world_goal_p
 
 
 class ExpVisualizer:
@@ -37,7 +52,7 @@ class ExpVisualizer:
 
         self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
-        self.slam_frequency = 10
+        self.slam_frequency = 30
         self.exploration_terminate_ratio = 0.85
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
@@ -165,13 +180,11 @@ class ExpVisualizer:
         self.plot_robots()
 
     def reset_goal(self, goal_list):
-        if not DEBUG_EXP_MAX:
-            self.axis_grid.cla()
         self.env.reset_goal(goal_list)
         for idx, goal in enumerate(goal_list):
             try:
                 self.axis_graph.scatter(goal[0], goal[1], marker=".", color="yellow", s=500, zorder=5)
-                self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
+                # self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
             except:
                 print("idx: ", idx)
                 print("goal: ", goal)
@@ -340,11 +353,21 @@ class ExpVisualizer:
         if explored_ratio > self.exploration_terminate_ratio:
             return True, [[None] * self.env.num_cooperative]
 
-        return False, self.frontier_generator.choose(self.landmark_slam.get_landmark_list(),
-                                                     self.landmark_slam.get_isam(),
-                                                     self.landmark_slam.get_last_key_state_pair(),
-                                                     self.virtual_map,
-                                                     self.axis_grid)
+        goals = self.frontier_generator.choose(self.landmark_slam.get_landmark_list(),
+                                               self.landmark_slam.get_isam(),
+                                               self.landmark_slam.get_last_key_state_pair(),
+                                               self.virtual_map,
+                                               self.axis_grid)
+        slam_pose = self.landmark_slam.get_last_key_state_pair([init_x, init_y,
+                                                                self.env.robots[0].init_theta])
+        if not DEBUG_EXP_MAX:
+            self.axis_grid.cla()
+        for i, goal in enumerate(goals):
+            self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
+            goals[i] = local_goal_to_world_goal(goal, slam_pose[1][i], [self.env.robots[i].x,
+                                                                        self.env.robots[i].y,
+                                                                        self.env.robots[i].theta])
+        return False, goals
 
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']

@@ -331,6 +331,8 @@ class ExpectationMaximizationTrajectory:
         # for inter-robot measurement
         self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
 
+        self.slam_speed = 2
+
         # radius for generate virtual landmark and virtual inter-robot observation
         self.radius = radius
 
@@ -364,7 +366,7 @@ class ExpectationMaximizationTrajectory:
         else:
             raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
 
-        step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]))
+        step = int(np.linalg.norm(state_1[0:2] - state_0[0:2])/ self.slam_speed)
 
         waypoints = np.linspace(state_0, state_1, step)
 
