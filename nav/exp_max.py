@@ -9,7 +9,7 @@ import copy
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
-from nav.frontier import FrontierGenerator, DEBUG_EM
+from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER
 from nav.utils import point_to_local, point_to_world
 
 DEBUG_EXP_MAX = False
@@ -52,7 +52,7 @@ class ExpVisualizer:
 
         self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
-        self.slam_frequency = 30
+        self.slam_frequency = 25
         self.exploration_terminate_ratio = 0.85
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
@@ -360,7 +360,7 @@ class ExpVisualizer:
                                                self.axis_grid)
         slam_pose = self.landmark_slam.get_last_key_state_pair([init_x, init_y,
                                                                 self.env.robots[0].init_theta])
-        if not DEBUG_EXP_MAX:
+        if not DEBUG_EXP_MAX and not DEBUG_FRONTIER:
             self.axis_grid.cla()
         for i, goal in enumerate(goals):
             self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)

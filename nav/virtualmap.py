@@ -151,6 +151,8 @@ def get_range_pose_point(pose, point):
     t_ = pose[:2]
     d = point - t_
     r = np.linalg.norm(d)
+    if r < 1e-6:
+        return r, np.zeros(3), np.zeros(2)
     D_r_d = d / r
 
     c_p = np.cos(pose[2])
@@ -244,12 +246,16 @@ def predict_virtual_landmark(state: np.ndarray, information_matrix,
                                                               sigma_b=sigma_bearing,
                                                               sigma_r=sigma_range,
                                                               jacobian=True)
-    R = np.diag(np.squeeze(sigmas)) ** 2
-    # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
-    # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
-    Hl_Hl_Hl = np.matmul(np.linalg.pinv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
-    A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
-    cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
+    try:
+        R = np.diag(np.squeeze(sigmas)) ** 2
+        # Hl_Hl_Hl = (Hl^T * Hl)^{-1}* Hl^T
+        # cov = Hl_Hl_Hl * [Hx * Info_Mat^{-1} * Hx^T + R] * Hl_Hl_Hl^T
+        Hl_Hl_Hl = np.matmul(np.linalg.pinv(np.matmul(Hl.transpose(), Hl)), Hl.transpose())
+        A = np.matmul(Hx, cho_solve(cho_factor(information_matrix), Hx.transpose())) + R
+        cov = np.matmul(np.matmul(Hl_Hl_Hl, A), Hl_Hl_Hl.transpose())
+    except:
+        print("Hx, Hl:", Hx, Hl)
+        print("R:", R)
     return np.linalg.pinv(cov)
 
 
