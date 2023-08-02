@@ -45,7 +45,7 @@ class VirtualLandmark:
         self.reset_information()
 
     def covariance(self):
-        return np.linalg.inv(self.information)
+        return np.linalg.pinv(self.information)
 
     def update_information(self, information):
         self.information = copy.deepcopy(information)
@@ -80,7 +80,7 @@ class VirtualLandmark:
 
     def set_updated(self, signal=None):
         if signal is None:
-            self.updated = True
+            self.updated = False
         else:
             self.updated = signal
 
@@ -114,7 +114,7 @@ class OccupancyMap:
         row = (point[1] - self.minY) / self.cell_size
         col_int = int(col)
         row_int = int(row)
-        radius = math.ceil(self.radius / self.cell_size) + 1
+        radius = math.ceil(self.radius / self.cell_size)
         min_col = max(col_int - radius, 0)
         min_row = max(row_int - radius, 0)
         max_col = min(col_int + radius, self.num_cols)
@@ -309,19 +309,22 @@ def pose_2_point_measurement(pose: np.ndarray, point, sigma_b, sigma_r, jacobian
                 np.concatenate(([Hl_bearing], [Hl_range]), axis=0)]
 
 
-def pose_2_point_measurement_batch(pose_batch, point_batch, sigma_b, sigma_r):
-    sigmas = torch.stack([torch.full_like(pose_batch[:, 0], sigma_b),
-                          torch.full_like(pose_batch[:, 0], sigma_r)], dim=1)
-    bearing_batch, Hx_bearing_batch, Hl_bearing_batch = get_bearing_pose_point_batch(pose_batch, point_batch)
-    range_batch, Hx_range_batch, Hl_range_batch = get_range_pose_point_batch(pose_batch, point_batch)
+def pose_2_point_measurement_batch(pose_batch, point_batch):
+    n1, n2, n3 = point_batch.shape
+    _, n4 = pose_batch.shape
+    pose_batch = pose_batch.repeat(1, n2, 1)
+    bearing_batch, Hx_bearing_batch, Hl_bearing_batch = get_bearing_pose_point_batch(pose_batch.view(-1, n4),
+                                                                                     point_batch.view(-1, n3))
+    range_batch, Hx_range_batch, Hl_range_batch = get_range_pose_point_batch(pose_batch.view(-1, n4),
+                                                                             point_batch.view(-1, n3))
     # bearing
     # range
     # Sigmas 2 by 1
     # Hx_bearing_range 2 by 3
     # Hl_bearing_range 2 by 2
-    return [bearing_batch, range_batch, sigmas.unsqueeze(2),
-            torch.stack([Hx_bearing_batch, Hx_range_batch], dim=1),
-            torch.stack([Hl_bearing_batch, Hl_range_batch], dim=1)]
+    Hx = torch.stack([Hx_bearing_batch, Hx_range_batch], dim=1)
+    Hl = torch.stack([Hl_bearing_batch, Hl_range_batch], dim=1)
+    return [bearing_batch.view(n1, n2), range_batch.view(n1, n2), Hx.view(n1, n2, 2, 3), Hl.view(n1, n2, 2, 2)]
 
 
 def predict_virtual_landmark(state: np.ndarray, information_matrix,
@@ -347,19 +350,19 @@ def predict_virtual_landmark(state: np.ndarray, information_matrix,
 # process virtual landmark data in batch
 def predict_virtual_landmark_batch(Hx, Hl, sigmas, information_matrix):
     # Compute R for the entire batch
-    R_batch = torch.diag_embed(sigmas.squeeze()) ** 2
+    R_batch = torch.diag_embed(sigmas) ** 2
 
     # Compute Hl_Hl_Hl for the entire batch
-    Hl_transpose = Hl.transpose(1, 2)
+    Hl_transpose = Hl.transpose(2, 3)
     Hl_Hl_Hl_batch = torch.matmul(torch.pinverse(torch.matmul(Hl_transpose, Hl)), Hl_transpose)
-
     L_batch = torch.linalg.cholesky(information_matrix)
 
     # Compute A for the entire batch
-    A_batch = torch.matmul(Hx, torch.cholesky_solve(Hx.transpose(1, 2), L_batch)) + R_batch
+    A_batch = torch.matmul(Hx, torch.cholesky_solve(Hx.transpose(2, 3),
+                                                    L_batch[:, None, :, :])) + R_batch[None, None, :, :]
 
     # Compute cov for the entire batch
-    cov_batch = torch.matmul(torch.matmul(Hl_Hl_Hl_batch, A_batch), Hl_Hl_Hl_batch.transpose(1, 2))
+    cov_batch = torch.matmul(torch.matmul(Hl_Hl_Hl_batch, A_batch), Hl_Hl_Hl_batch.transpose(2, 3))
     info_batch = torch.pinverse(cov_batch)
     return info_batch
 
@@ -380,12 +383,28 @@ class VirtualMap:
         self.range_bearing_model = RangeBearingMeasurement()
         self.use_torch = True
 
+        if self.use_torch:
+            self.indices_within = None
+            self.generate_sensor_model()
+
         # Initialize occupancy map with unknown grid
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
                 x = j * self.cell_size + self.cell_size * .5 + self.minX
                 y = i * self.cell_size + self.cell_size * .5 + self.minY
                 self.data[i, j] = VirtualLandmark(0, x, y)
+
+    def generate_sensor_model(self):
+        radius = math.ceil(self.radius / self.cell_size)
+        grid = torch.meshgrid(torch.arange(0, radius * 2, dtype=torch.int32),
+                              torch.arange(0, radius * 2, dtype=torch.int32),
+                              indexing='ij')
+        indices = torch.stack(grid, dim=-1).view(-1, 2)
+        indices_float = indices.to(torch.float32)
+        indices_float += 0.5
+        distances = torch.norm(indices_float - torch.tensor(radius), dim=-1)
+        mask = distances < radius
+        self.indices_within = indices[mask]
 
     def get_parameters(self):
         param = {"maxX": self.maxX, "minX": self.minX, "maxY": self.maxY, "minY": self.minY,
@@ -429,7 +448,7 @@ class VirtualMap:
         np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
         time0 = time.time()
-        if len(slam_result.keys()) < 100 or not self.use_torch:
+        if len(slam_result.keys()) * self.cell_size < 100 or not self.use_torch:
             for key in slam_result.keys():
                 if key < ord('a'):  # landmark case
                     pass
@@ -438,24 +457,32 @@ class VirtualMap:
                     self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
                                                   marginals.marginalInformation(key))
         else:
-            poses_array = np.empty((len(slam_result.keys()), 3))
-            information_matrix_array = np.empty((len(slam_result.keys()), 3, 3))
+            poses_array = []
+            information_matrix_array = []
+            cnt = 0
             for key in slam_result.keys():
-                pose = slam_result.atPose2(key)
-                poses_array[key, :] = np.array([pose.x(), pose.y(), pose.theta()])
-                information_matrix_array[key, :, :] = marginals.marginalInformation(key)
-            self.update_information_robot_batch(poses_array, information_matrix_array)
+                if key < ord('a'):  # landmark case
+                    pass
+                else:
+                    pose = slam_result.atPose2(key)
+                    poses_array.append(np.array([pose.x(), pose.y(), pose.theta()]))
+                    information_matrix_array.append(marginals.marginalInformation(key))
+                    cnt += 1
+            self.update_information_robot_batch(torch.tensor(np.array(poses_array)),
+                                                torch.tensor(np.array(information_matrix_array)))
         time1 = time.time()
         print("time information: ", time1 - time0)
 
     def update_information_robot_batch(self, poses, information_matrix):
-        indices = self.find_neighbor_indices(poses[:, :2])
-        bearing, range, sigmas, Hx, Hl = pose_2_point_measurement_batch(poses,
-                                                                        indices,
-                                                                        sigma_b=self.range_bearing_model.sigma_b,
-                                                                        sigma_r=self.range_bearing_model.sigma_r)
-        info_batch = predict_virtual_landmark_batch(Hx,Hl, sigmas, information_matrix)
-        for n, [i, j] in enumerate(indices):
+        indices, points = self.find_neighbor_indices_batch(poses[:, :2])
+        _, _, Hx, Hl = pose_2_point_measurement_batch(poses, points)
+        sigmas = torch.tensor(np.array([self.range_bearing_model.sigma_b, self.range_bearing_model.sigma_r]))
+
+        info_batch = predict_virtual_landmark_batch(Hx, Hl, sigmas, information_matrix)
+        info_batch = info_batch.view(-1, 2, 2)
+        for n, [i, j] in enumerate(indices.view(-1, 2).numpy()):
+            if i < 0 or i >= self.num_rows or j < 0 or j >= self.num_cols:
+                continue
             # if self.data[i, j].probability < 0.49:
             #     continue
             if self.data[i, j].updated:
@@ -469,7 +496,7 @@ class VirtualMap:
         row = (point[1] - self.minY) / self.cell_size
         col_int = int(col)
         row_int = int(row)
-        radius = math.ceil(self.radius / self.cell_size) + 1
+        radius = math.ceil(self.radius / self.cell_size)
         min_col = max(col_int - radius, 0)
         min_row = max(row_int - radius, 0)
         max_col = min(col_int + radius, self.num_cols)
@@ -486,21 +513,17 @@ class VirtualMap:
     def find_neighbor_indices_batch(self, point_batch):
         col = (point_batch[:, 0] - self.minX) / self.cell_size
         row = (point_batch[:, 1] - self.minY) / self.cell_size
-        col_int = col.astype(int)
-        row_int = row.astype(int)
-        radius = math.ceil(self.radius / self.cell_size) + 1
-        min_col = np.maximum(col_int - radius, 0)
-        min_row = np.maximum(row_int - radius, 0)
-        max_col = np.minimum(col_int + radius, self.num_cols)
-        max_row = np.minimum(row_int + radius, self.num_rows)
-        indices = np.indices((max_row - min_row, max_col - min_col)).reshape(2, -1).T
-        indices[:, 0] += min_row
-        indices[:, 1] += min_col
-        indices_float = indices.astype(float)
-        indices_float[:, :] += 0.5
-        distances = cdist(indices_float, point_batch, 'euclidean')
-        indices_within = np.where(distances < radius)[0]
-        return indices[indices_within]
+        center_batch = torch.stack([row.to(torch.int32), col.to(torch.int32)], dim=-1)
+        radius = math.ceil(self.radius / self.cell_size)
+        min_batch = center_batch - radius
+        indices = self.indices_within.clone()
+        indices = indices + min_batch[:, None, :]
+        return indices, self.indices_batch_2_xy_batch(indices)
+
+    def indices_batch_2_xy_batch(self, indices):
+        x = indices[:, :, 1] * self.cell_size + self.cell_size * .5 + self.minX
+        y = indices[:, :, 0] * self.cell_size + self.cell_size * .5 + self.minY
+        return torch.stack([x, y], dim=-1)
 
     def update_information_robot(self, state: np.ndarray, information_matrix):
         indices = self.find_neighbor_indices(np.array([state[0], state[1]]))

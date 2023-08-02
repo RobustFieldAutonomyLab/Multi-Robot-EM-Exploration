@@ -52,7 +52,7 @@ class ExpVisualizer:
 
         self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
-        self.slam_frequency = 25
+        self.slam_frequency = 10
         self.exploration_terminate_ratio = 0.85
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,

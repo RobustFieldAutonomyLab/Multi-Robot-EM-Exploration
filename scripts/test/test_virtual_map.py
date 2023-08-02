@@ -22,7 +22,7 @@ if 1:
 
     # Do a ten step navigate
     n = 50
-    visualize = True
+    visualize = False
     goal_list = []
     speed = 5
     for i in tqdm(range(0, n)):
@@ -66,9 +66,8 @@ if 1:
         ev.axis_grid.cla()
         ev.reset_goal(goals)
         slam_result = ev.navigate_one_step("tmp/test_virtual_map", False)
-        if i > 1:
-            ev.virtual_map.update(slam_result, ev.landmark_slam.get_marginal())
-        if visualize and i> 1:
+        ev.virtual_map.update(slam_result, ev.landmark_slam.get_marginal())
+        if visualize:
             ev.plot_grid(ev.axis_grid)
             ev.visualize_SLAM()
             ev.fig.savefig("tmp/test_virtual_map" + str(i) + ".png", bbox_inches="tight")

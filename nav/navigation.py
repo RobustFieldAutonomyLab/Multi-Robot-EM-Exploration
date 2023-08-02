@@ -25,9 +25,9 @@ class LandmarkSLAM:
         # Noise models for the odometry
         self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
         # Noise models for the range bearing measurements
-        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004])
+        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1])
         self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
-            gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.004]))
+            gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1]))
         # Noise models for the robot observations
         # self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.004])
         self.robot_noise_model = gtsam.noiseModel.Robust.Create(
