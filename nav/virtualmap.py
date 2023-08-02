@@ -5,6 +5,7 @@ from scipy.spatial.distance import cdist
 from scipy.linalg import cho_factor, cho_solve
 import copy
 import time
+import torch
 
 from marinenav_env.envs.utils.robot import RangeBearingMeasurement
 
@@ -166,6 +167,33 @@ def get_range_pose_point(pose, point):
     return r, Hpose, Hpoint
 
 
+def get_range_pose_point_batch(pose_batch, point_batch):
+    t_batch = pose_batch[:, :2]
+    d_batch = point_batch - t_batch
+    r_batch = torch.norm(d_batch, dim=1)
+
+    D_r_d_batch = d_batch / r_batch.unsqueeze(-1)
+
+    c_p_batch = torch.cos(pose_batch[:, 2])
+    s_p_batch = torch.sin(pose_batch[:, 2])
+
+    D_d_pose_batch = torch.stack([
+        torch.stack([-c_p_batch, s_p_batch, torch.zeros_like(c_p_batch)]),
+        torch.stack([-s_p_batch, -c_p_batch, torch.zeros_like(c_p_batch)])
+    ], dim=0)
+    D_d_pose_batch = D_d_pose_batch.permute(2, 0, 1)
+
+    Hpose_batch = torch.matmul(D_r_d_batch.unsqueeze(1), D_d_pose_batch)
+    Hpoint_batch = D_r_d_batch
+
+    return nan_2_zero(r_batch), nan_2_zero(Hpose_batch.squeeze()), nan_2_zero(Hpoint_batch)
+
+
+def nan_2_zero(x):
+    mask_nan = torch.isnan(x)
+    return torch.where(mask_nan, torch.tensor(0.0), x)
+
+
 def get_bearing_pose_point(pose, point, jacobian=True):
     if jacobian:
         theta = pose[2]
@@ -180,6 +208,15 @@ def get_bearing_pose_point(pose, point, jacobian=True):
         return relative_bearing(d)
 
 
+def get_bearing_pose_point_batch(pose_batch, point_batch):
+    theta_batch = pose_batch[:, 2]
+    d_batch, D_d_pose_batch, D_d_point_batch = unrotate_batch(theta_batch, point_batch - pose_batch[:, :2])
+    result_batch, D_result_d_batch = relative_bearing_batch(d_batch)
+    Hpose_batch = torch.matmul(D_result_d_batch.unsqueeze(1), D_d_pose_batch)
+    Hpoint_batch = torch.matmul(D_result_d_batch.unsqueeze(1), D_d_point_batch)
+    return result_batch, Hpose_batch.squeeze(), Hpoint_batch.squeeze()
+
+
 def unrotate(theta, p):
     c = np.cos(theta)
     s = np.sin(theta)
@@ -189,11 +226,31 @@ def unrotate(theta, p):
     return q, H1, H2
 
 
+def unrotate_batch(theta_batch, p_batch):
+    c = torch.cos(theta_batch)
+    s = torch.sin(theta_batch)
+    q = torch.stack([c * p_batch[:, 0] + s * p_batch[:, 1],
+                     -s * p_batch[:, 0] + c * p_batch[:, 1]], dim=1)
+    H11 = torch.stack([-torch.ones_like(c), torch.zeros_like(c), q[:, 1]], dim=1)
+    H12 = torch.stack([torch.zeros_like(c), -torch.ones_like(c), -q[:, 0]], dim=1)
+    H1 = torch.stack([H11, H12], dim=1)
+    H2 = torch.stack([torch.stack([c, s], dim=1), torch.stack([-s, c], dim=1)], dim=1)
+
+    return q, H1, H2
+
+
 def from_cos_sin(c, s):
     theta = np.arccos(c)
     if s < 0:
         theta = 2 * np.pi - theta
     return theta
+
+
+def from_cos_sin_batch(c_batch, s_batch):
+    theta_batch = torch.acos(c_batch)
+    mask = s_batch < 0
+    theta_batch[mask] = 2 * np.pi - theta_batch[mask]
+    return theta_batch
 
 
 def relative_bearing(d, jacobian=True):
@@ -215,6 +272,19 @@ def relative_bearing(d, jacobian=True):
             return from_cos_sin(x / n, y / n)
         else:
             return 0
+
+
+def relative_bearing_batch(d_batch):
+    x = d_batch[:, 0]
+    y = d_batch[:, 1]
+    d2 = x ** 2 + y ** 2
+    n = torch.sqrt(d2)
+    theta_batch = torch.zeros_like(n)
+    H = torch.stack([torch.zeros_like(n), torch.zeros_like(n)], dim=1)
+    mask = n > 1e-5
+    theta_batch[mask] = from_cos_sin_batch(x[mask] / n[mask], y[mask] / n[mask])
+    H[mask, :] = torch.stack([-y[mask] / d2[mask], x[mask] / d2[mask]], dim=1)
+    return theta_batch, H
 
 
 def pose_2_point_measurement(pose: np.ndarray, point, sigma_b, sigma_r, jacobian: bool):
@@ -239,6 +309,21 @@ def pose_2_point_measurement(pose: np.ndarray, point, sigma_b, sigma_r, jacobian
                 np.concatenate(([Hl_bearing], [Hl_range]), axis=0)]
 
 
+def pose_2_point_measurement_batch(pose_batch, point_batch, sigma_b, sigma_r):
+    sigmas = torch.stack([torch.full_like(pose_batch[:, 0], sigma_b),
+                          torch.full_like(pose_batch[:, 0], sigma_r)], dim=1)
+    bearing_batch, Hx_bearing_batch, Hl_bearing_batch = get_bearing_pose_point_batch(pose_batch, point_batch)
+    range_batch, Hx_range_batch, Hl_range_batch = get_range_pose_point_batch(pose_batch, point_batch)
+    # bearing
+    # range
+    # Sigmas 2 by 1
+    # Hx_bearing_range 2 by 3
+    # Hl_bearing_range 2 by 2
+    return [bearing_batch, range_batch, sigmas.unsqueeze(2),
+            torch.stack([Hx_bearing_batch, Hx_range_batch], dim=1),
+            torch.stack([Hl_bearing_batch, Hl_range_batch], dim=1)]
+
+
 def predict_virtual_landmark(state: np.ndarray, information_matrix,
                              virtual_landmark_position, sigma_range, sigma_bearing):
     bearing, range, sigmas, Hx, Hl = pose_2_point_measurement(state,
@@ -259,6 +344,26 @@ def predict_virtual_landmark(state: np.ndarray, information_matrix,
     return np.linalg.pinv(cov)
 
 
+# process virtual landmark data in batch
+def predict_virtual_landmark_batch(Hx, Hl, sigmas, information_matrix):
+    # Compute R for the entire batch
+    R_batch = torch.diag_embed(sigmas.squeeze()) ** 2
+
+    # Compute Hl_Hl_Hl for the entire batch
+    Hl_transpose = Hl.transpose(1, 2)
+    Hl_Hl_Hl_batch = torch.matmul(torch.pinverse(torch.matmul(Hl_transpose, Hl)), Hl_transpose)
+
+    L_batch = torch.linalg.cholesky(information_matrix)
+
+    # Compute A for the entire batch
+    A_batch = torch.matmul(Hx, torch.cholesky_solve(Hx.transpose(1, 2), L_batch)) + R_batch
+
+    # Compute cov for the entire batch
+    cov_batch = torch.matmul(torch.matmul(Hl_Hl_Hl_batch, A_batch), Hl_Hl_Hl_batch.transpose(1, 2))
+    info_batch = torch.pinverse(cov_batch)
+    return info_batch
+
+
 class VirtualMap:
     def __init__(self, parameters):
         self.maxX = parameters["maxX"]
@@ -273,6 +378,7 @@ class VirtualMap:
         self.data = np.empty((self.num_rows, self.num_cols), dtype=object)
 
         self.range_bearing_model = RangeBearingMeasurement()
+        self.use_torch = True
 
         # Initialize occupancy map with unknown grid
         for i in range(0, self.num_rows):
@@ -323,15 +429,40 @@ class VirtualMap:
         np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
         time0 = time.time()
-        for key in slam_result.keys():
-            if key < ord('a'):  # landmark case
-                pass
-            else:  # robot case
+        if len(slam_result.keys()) < 100 or not self.use_torch:
+            for key in slam_result.keys():
+                if key < ord('a'):  # landmark case
+                    pass
+                else:  # robot case
+                    pose = slam_result.atPose2(key)
+                    self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
+                                                  marginals.marginalInformation(key))
+        else:
+            poses_array = np.empty((len(slam_result.keys()), 3))
+            information_matrix_array = np.empty((len(slam_result.keys()), 3, 3))
+            for key in slam_result.keys():
                 pose = slam_result.atPose2(key)
-                self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
-                                              marginals.marginalInformation(key))
+                poses_array[key, :] = np.array([pose.x(), pose.y(), pose.theta()])
+                information_matrix_array[key, :, :] = marginals.marginalInformation(key)
+            self.update_information_robot_batch(poses_array, information_matrix_array)
         time1 = time.time()
         print("time information: ", time1 - time0)
+
+    def update_information_robot_batch(self, poses, information_matrix):
+        indices = self.find_neighbor_indices(poses[:, :2])
+        bearing, range, sigmas, Hx, Hl = pose_2_point_measurement_batch(poses,
+                                                                        indices,
+                                                                        sigma_b=self.range_bearing_model.sigma_b,
+                                                                        sigma_r=self.range_bearing_model.sigma_r)
+        info_batch = predict_virtual_landmark_batch(Hx,Hl, sigmas, information_matrix)
+        for n, [i, j] in enumerate(indices):
+            # if self.data[i, j].probability < 0.49:
+            #     continue
+            if self.data[i, j].updated:
+                self.data[i, j].update_information_weighted(info_batch[n, :, :])
+            else:
+                self.data[i, j].reset_information(info_batch[n, :, :])
+                self.data[i, j].set_updated()
 
     def find_neighbor_indices(self, point):
         col = (point[0] - self.minX) / self.cell_size
@@ -349,6 +480,25 @@ class VirtualMap:
         indices_float = indices.astype(float)
         indices_float[:, :] += 0.5
         distances = cdist(indices_float, np.array([[row, col]]), 'euclidean').flatten()
+        indices_within = np.where(distances < radius)[0]
+        return indices[indices_within]
+
+    def find_neighbor_indices_batch(self, point_batch):
+        col = (point_batch[:, 0] - self.minX) / self.cell_size
+        row = (point_batch[:, 1] - self.minY) / self.cell_size
+        col_int = col.astype(int)
+        row_int = row.astype(int)
+        radius = math.ceil(self.radius / self.cell_size) + 1
+        min_col = np.maximum(col_int - radius, 0)
+        min_row = np.maximum(row_int - radius, 0)
+        max_col = np.minimum(col_int + radius, self.num_cols)
+        max_row = np.minimum(row_int + radius, self.num_rows)
+        indices = np.indices((max_row - min_row, max_col - min_col)).reshape(2, -1).T
+        indices[:, 0] += min_row
+        indices[:, 1] += min_col
+        indices_float = indices.astype(float)
+        indices_float[:, :] += 0.5
+        distances = cdist(indices_float, point_batch, 'euclidean')
         indices_within = np.where(distances < radius)[0]
         return indices[indices_within]
 
