@@ -311,8 +311,9 @@ def pose_2_point_measurement(pose: np.ndarray, point, sigma_b, sigma_r, jacobian
 
 def pose_2_point_measurement_batch(pose_batch, point_batch):
     n1, n2, n3 = point_batch.shape
-    _, n4 = pose_batch.shape
-    pose_batch = pose_batch.repeat(1, n2, 1)
+    n5, n4 = pose_batch.shape
+    pose_batch = pose_batch.repeat(1, n2).reshape(n5,n2,n4)
+
     bearing_batch, Hx_bearing_batch, Hl_bearing_batch = get_bearing_pose_point_batch(pose_batch.view(-1, n4),
                                                                                      point_batch.view(-1, n3))
     range_batch, Hx_range_batch, Hl_range_batch = get_range_pose_point_batch(pose_batch.view(-1, n4),
@@ -396,13 +397,12 @@ class VirtualMap:
 
     def generate_sensor_model(self):
         radius = math.ceil(self.radius / self.cell_size)
-        grid = torch.meshgrid(torch.arange(0, radius * 2, dtype=torch.int32),
-                              torch.arange(0, radius * 2, dtype=torch.int32),
+        grid = torch.meshgrid(torch.arange(-radius, radius, dtype=torch.int32),
+                              torch.arange(-radius, radius, dtype=torch.int32),
                               indexing='ij')
         indices = torch.stack(grid, dim=-1).view(-1, 2)
         indices_float = indices.to(torch.float32)
-        indices_float += 0.5
-        distances = torch.norm(indices_float - torch.tensor(radius), dim=-1)
+        distances = torch.norm(indices_float, dim=-1)
         mask = distances < radius
         self.indices_within = indices[mask]
 
@@ -448,7 +448,8 @@ class VirtualMap:
         np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
         time0 = time.time()
-        if len(slam_result.keys()) * self.cell_size < 100 or not self.use_torch:
+        # if len(slam_result.keys()) * self.cell_size < 100 or not self.use_torch:
+        if not self.use_torch:
             for key in slam_result.keys():
                 if key < ord('a'):  # landmark case
                     pass
@@ -480,6 +481,7 @@ class VirtualMap:
 
         info_batch = predict_virtual_landmark_batch(Hx, Hl, sigmas, information_matrix)
         info_batch = info_batch.view(-1, 2, 2)
+
         for n, [i, j] in enumerate(indices.view(-1, 2).numpy()):
             if i < 0 or i >= self.num_rows or j < 0 or j >= self.num_cols:
                 continue
@@ -513,11 +515,10 @@ class VirtualMap:
     def find_neighbor_indices_batch(self, point_batch):
         col = (point_batch[:, 0] - self.minX) / self.cell_size
         row = (point_batch[:, 1] - self.minY) / self.cell_size
-        center_batch = torch.stack([row.to(torch.int32), col.to(torch.int32)], dim=-1)
+        center_batch = torch.stack([torch.round(row).to(dtype=torch.int32), torch.round(col).to(dtype=torch.int32)], dim=-1)
         radius = math.ceil(self.radius / self.cell_size)
-        min_batch = center_batch - radius
         indices = self.indices_within.clone()
-        indices = indices + min_batch[:, None, :]
+        indices = indices + center_batch[:, None, :]
         return indices, self.indices_batch_2_xy_batch(indices)
 
     def indices_batch_2_xy_batch(self, indices):
