@@ -74,8 +74,8 @@ class FrontierGenerator:
         self.max_distance_scaled = float(self.max_distance) / float(self.cell_size)
         self.min_distance_scaled = float(self.min_distance) / float(self.cell_size)
 
-        self.free_threshold = 0.49
-        self.obstacle_threshold = 0.52
+        self.free_threshold = 0.45
+        self.obstacle_threshold = 0.55
         self.neighbor_kernel = np.array([[0, 1, 0],
                                          [1, 0, 1],
                                          [0, 1, 0]])

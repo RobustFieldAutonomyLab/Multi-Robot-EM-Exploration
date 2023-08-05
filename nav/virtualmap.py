@@ -485,8 +485,9 @@ class VirtualMap:
         for n, [i, j] in enumerate(indices.view(-1, 2).numpy()):
             if i < 0 or i >= self.num_rows or j < 0 or j >= self.num_cols:
                 continue
-            # if self.data[i, j].probability < 0.49:
-            #     continue
+            # not yet part of the map
+            if self.data[i, j].probability > 0.49:
+                continue
             if self.data[i, j].updated:
                 self.data[i, j].update_information_weighted(info_batch[n, :, :])
             else:
@@ -555,9 +556,14 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_sum_uncertainty(self):
+    def get_sum_uncertainty(self, type = "D"):
         sum_uncertainty = 0.0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
-                sum_uncertainty += np.trace(self.data[i, j].covariance())
+                if self.data[i,j].probability > 0.49:
+                    continue
+                if type == "A":
+                    sum_uncertainty += np.trace(self.data[i, j].covariance())
+                elif type == "D":
+                    sum_uncertainty += 1.0 / np.linalg.det(self.data[i, j].information)
         return sum_uncertainty
