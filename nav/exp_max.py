@@ -29,12 +29,31 @@ def local_goal_to_world_goal(local_goal_p, local_robot_p, world_robot_p):
     return world_goal_p
 
 
+def eigsorted(info):
+    vals, vecs = np.linalg.eigh(info)
+    vals = 1.0 / vals
+    order = vals.argsort()[::-1]
+    return vals[order], vecs[:, order]
+
+
+def plot_info_ellipse(position, info, axis, nstd=.2, **kwargs):
+    vals, vecs = eigsorted(info)
+    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+
+    width, height = 2 * nstd * np.sqrt(vals)
+    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs)
+
+    axis.add_artist(ellip)
+    return ellip
+
+
 class ExpVisualizer:
 
     def __init__(self,
                  seed: int = 0,
                  dpi: int = 96,  # Monitor DPI
                  ):
+
         self.env = marinenav_env.MarineNavEnv2(seed)
         self.env.reset()
         self.fig = None  # figure for visualization
@@ -48,8 +67,8 @@ class ExpVisualizer:
         self.dpi = dpi  # monitor DPI
 
         self.APF_agents = None
-        self.step = 0
 
+        self.slam_origin = None
         self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
@@ -85,12 +104,13 @@ class ExpVisualizer:
 
         self.plot_graph(self.axis_graph)
 
-    def plot_grid(self, axis, probability=True, information=True):
+    def plot_grid(self, probability=True, information=True):
+        self.axis_grid.cla()
         if probability:
             data = self.virtual_map.get_probability_matrix()
-            axis.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
-                        extent=[self.virtual_map.minX, self.virtual_map.maxX,
-                                self.virtual_map.minY, self.virtual_map.maxY])
+            self.axis_grid.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+                                  extent=[self.virtual_map.minX, self.virtual_map.maxX,
+                                          self.virtual_map.minY, self.virtual_map.maxY])
         self.axis_grid.set_xticks([])
         self.axis_grid.set_yticks([])
         if information:
@@ -98,26 +118,10 @@ class ExpVisualizer:
             virtual_map = self.virtual_map.get_virtual_map()
             for i, map_row in enumerate(virtual_map):
                 for j, virtual_landmark in enumerate(map_row):
-                    self.plot_info_ellipse(np.array([virtual_landmark.x,
-                                                     virtual_landmark.y]),
-                                           virtual_landmark.information, self.axis_grid,
-                                           nstd=self.virtual_map.cell_size * 0.04)
-
-    def eigsorted(self, info):
-        vals, vecs = np.linalg.eigh(info)
-        vals = 1.0 / vals
-        order = vals.argsort()[::-1]
-        return vals[order], vecs[:, order]
-
-    def plot_info_ellipse(self, position, info, axis, nstd=.2, **kwargs):
-        vals, vecs = self.eigsorted(info)
-        theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
-
-        width, height = 2 * nstd * np.sqrt(vals)
-        ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs)
-
-        axis.add_artist(ellip)
-        return ellip
+                    plot_info_ellipse(np.array([virtual_landmark.x,
+                                                virtual_landmark.y]),
+                                      virtual_landmark.information, self.axis_grid,
+                                      nstd=self.virtual_map.cell_size * 0.04)
 
     def plot_graph(self, axis):
         # plot current velocity in the mapf
@@ -179,6 +183,9 @@ class ExpVisualizer:
 
         self.plot_robots()
 
+    def reset_one_goal(self, goal, idx):
+        self.env.robots[idx].reset_goal(goal)
+
     def reset_goal(self, goal_list):
         self.env.reset_goal(goal_list)
         for idx, goal in enumerate(goal_list):
@@ -197,17 +204,16 @@ class ExpVisualizer:
 
         for i, robot in enumerate(self.env.robots):
             d = np.matrix([[0.5 * robot.length], [0.5 * robot.width]])
-            rot = np.matrix([[np.cos(robot.theta), -np.sin(robot.theta)], \
-                             [np.sin(robot.theta), np.cos(robot.theta)]])
+            rot = np.matrix([[np.cos(robot.theta), -np.sin(robot.theta)], [np.sin(robot.theta), np.cos(robot.theta)]])
             d_r = rot * d
             xy = (robot.x - d_r[0, 0], robot.y - d_r[1, 0])
 
             angle_d = robot.theta / np.pi * 180
             c = 'g' if robot.cooperative else 'r'
-            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Rectangle(xy, robot.length, \
-                                                                                    robot.width, color=c, \
+            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Rectangle(xy, robot.length,
+                                                                                    robot.width, color=c,
                                                                                     angle=angle_d, zorder=7)))
-            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Circle((robot.x, robot.y), \
+            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Circle((robot.x, robot.y),
                                                                                  robot.perception.range, color=c,
                                                                                  alpha=0.2)))
             self.robots_plot.append(self.axis_graph.text(robot.x - 1, robot.y + 1, str(i), color="yellow", fontsize=15))
@@ -220,61 +226,117 @@ class ExpVisualizer:
 
             self.robots_last_pos[i] = [robot.x, robot.y]
 
-    def one_step(self, actions, slam_signal=False, robot_idx=0):
-        assert len(actions) == len(self.env.robots), "Number of actions not equal number of robots!"
-        for i, action in enumerate(actions):
-            rob = self.env.robots[i]
-            if rob.reach_goal:
-                continue
-            current_velocity = self.env.get_velocity(rob.x, rob.y)
-            rob.update_state(action, current_velocity)
+    def one_step(self, action, robot_idx=None):
+        if robot_idx is not None:
+            rob = self.env.robots[robot_idx]
+            if not rob.reach_goal:
+                current_velocity = self.env.get_velocity(rob.x, rob.y)
+                rob.update_state(action, current_velocity)
 
-        self.plot_robots()
-
-        self.step += 1
+        # assert len(action) == len(self.env.robots), "Number of actions not equal number of robots!"
+        # for i, action in enumerate(action):
+        #     rob = self.env.robots[i]
+        #     if rob.reach_goal:
+        #         continue
+        #     current_velocity = self.env.get_velocity(rob.x, rob.y)
+        #     rob.update_state(action, current_velocity)
+        #
+        # self.plot_robots()
+        #
+        # self.step += 1
 
     def initialize_apf_agents(self):
         self.APF_agents = []
         for robot in self.env.robots:
             self.APF_agents.append(APF_agent(robot.a, robot.w))
 
-    def navigate_one_step(self, path, video=False):
-        stop_signal = False
-        odom_cnt = 0
-        while not stop_signal:
-            reached = 0
-            if odom_cnt % self.slam_frequency == 0:
-                slam_signal = True
-            else:
-                slam_signal = False
-            # slam_signal = True
-            observations = self.env.get_observations()
-            if slam_signal:
-                obs_list = self.generate_SLAM_observations(observations)
-                self.landmark_slam.add_one_step(obs_list)
-                self.slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
-                                                                  self.env.robots[0].start[1],
-                                                                  self.env.robots[0].init_theta])
-                # self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
-                if video:
-                    self.axis_grid.cla()
-                    self.plot_grid(self.axis_grid)
-                    self.visualize_SLAM()
-                    self.fig.savefig(path + str(self.cnt) + ".png", bbox_inches="tight")
-                    self.cnt += 1
-            odom_cnt += 1
+    def slam_one_step(self, observations, video=False, path=None):
+        obs_list = self.generate_SLAM_observations(observations)
+        self.landmark_slam.add_one_step(obs_list)
+        self.slam_result = self.landmark_slam.get_result([self.env.robots[0].start[0],
+                                                          self.env.robots[0].start[1],
+                                                          self.env.robots[0].init_theta])
+        # self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
+        if video:
+            self.plot_grid()
+            self.visualize_SLAM()
+            self.fig.savefig(path + str(self.cnt) + ".png", bbox_inches="tight")
+            self.cnt += 1
 
+    def navigate_one_step(self, max_ite, path, video=False):
+        stop_signal = False
+
+        speed = 15
+        direction_list = [[0, 1], [-1, 1], [-1, 0], [-1, -1],
+                          [0, -1], [1, -1], [1, 0], [1, 1]]
+        plot_cnt = 0
+        direction_cnt = [0] * self.env.num_cooperative
+        while plot_cnt < max_ite and not stop_signal:
+            plot_signal = False
+            observations = self.env.get_observations()
+            if self.cnt % self.slam_frequency == 0:
+                self.slam_one_step(observations)
+            self.cnt += 1
             actions = []
             for i, apf in enumerate(self.APF_agents):
-                if self.env.robots[i].reach_goal:
-                    actions.append(-1)
-                    reached += 1
-                else:
-                    actions.append(apf.act(observations[i][0]))
-            if reached == self.env.num_cooperative:
-                stop_signal = True
-            self.one_step(actions, slam_signal=slam_signal)
-        return self.slam_result
+                robot = self.env.robots[i]
+                if robot.reach_goal:
+                    # if reach a goal, design a new goal
+                    direction_this = direction_list[(direction_cnt[i] + i) % len(direction_list)]
+                    direction_cnt[i] += 1
+                    new_goal = [robot.x + speed * direction_this[0],
+                                robot.y + speed * direction_this[1]]
+                    robot.reset_goal(new_goal)
+                    plot_signal = True
+                actions.append(apf.act(observations[i][0]))
+            # moving
+            for i, action in enumerate(actions):
+                self.one_step(action, robot_idx=i)
+            if plot_signal:
+                self.axis_grid.cla()
+                self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
+                self.plot_grid()
+                self.plot_robots()
+                self.visualize_SLAM()
+
+                self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
+                plot_cnt += 1
+        return True
+
+    def explore_one_step(self, max_ite, path, video=False):
+        self.slam_origin = [self.env.robots[0].start[0],
+                            self.env.robots[0].start[1],
+                            self.env.robots[0].init_theta]
+        stop_signal = False
+        plot_cnt = 0
+        while plot_cnt < max_ite and not stop_signal:
+            plot_signal = False
+            observations = self.env.get_observations()
+            if self.cnt % self.slam_frequency == 0:
+                self.slam_one_step(observations)
+            self.cnt += 1
+            actions = []
+            for i, apf in enumerate(self.APF_agents):
+                robot = self.env.robots[i]
+                if robot.reach_goal:
+                    # if reach a goal, design a new goal
+                    stop_signal, new_goal = self.generate_frontier()
+                    robot.reset_goal(new_goal)
+                    plot_signal = True
+                actions.append(apf.act(observations[i][0]))
+            # moving
+            for i, action in enumerate(actions):
+                self.one_step(action, robot_idx=i)
+            if plot_signal:
+                self.axis_grid.cla()
+                self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
+                self.plot_grid()
+                self.plot_robots()
+                self.visualize_SLAM()
+
+                self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
+                plot_cnt += 1
+        return True
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
@@ -338,36 +400,27 @@ class ExpVisualizer:
         for robot in self.env.robots:
             self.axis_graph.scatter(robot.x, robot.y, marker="*", color="yellow", s=500, zorder=5)
 
-    def generate_frontier(self):
+    def generate_frontier(self, idx):
         self.virtual_map.update(self.slam_result)  # , ev.landmark_slam.get_marginal())
         probability_map = self.virtual_map.get_probability_matrix()
-        init_x = self.env.robots[0].start[0]
-        init_y = self.env.robots[0].start[1]
-        self.landmark_list = self.landmark_slam.get_landmark_list([init_x, init_y,
-                                                                   self.env.robots[0].init_theta])
-        explored_ratio = self.frontier_generator.generate(probability_map,
-                                                          self.landmark_slam.get_latest_state([init_x, init_y,
-                                                                                               self.env.robots[
-                                                                                                   0].init_theta]),
+        self.landmark_list = self.landmark_slam.get_landmark_list(self.slam_origin)
+        explored_ratio = self.frontier_generator.generate(idx, probability_map,
+                                                          self.landmark_slam.get_latest_state(self.slam_origin),
                                                           self.landmark_list, self.axis_grid)
         if explored_ratio > self.exploration_terminate_ratio:
-            return True, [[None] * self.env.num_cooperative]
+            return True, None
 
-        goals = self.frontier_generator.choose(self.landmark_slam.get_landmark_list(),
-                                               self.landmark_slam.get_isam(),
-                                               self.landmark_slam.get_last_key_state_pair(),
-                                               self.virtual_map,
-                                               self.axis_grid)
-        slam_pose = self.landmark_slam.get_last_key_state_pair([init_x, init_y,
-                                                                self.env.robots[0].init_theta])
+        goal = self.frontier_generator.choose(idx, self.landmark_slam.get_landmark_list(),
+                                              self.landmark_slam.get_isam(),
+                                              self.landmark_slam.get_last_key_state_pair(),
+                                              self.virtual_map,
+                                              self.axis_grid)
+        slam_poses = self.landmark_slam.get_last_key_state_pair(self.slam_origin)
         if not DEBUG_EXP_MAX and not DEBUG_FRONTIER:
             self.axis_grid.cla()
-        for i, goal in enumerate(goals):
-            self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
-            goals[i] = local_goal_to_world_goal(goal, slam_pose[1][i], [self.env.robots[i].x,
-                                                                        self.env.robots[i].y,
-                                                                        self.env.robots[i].theta])
-        return False, goals
+        self.axis_grid.scatter(goal, goal, marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
+        goal = local_goal_to_world_goal(goal, slam_poses[1][idx], self.slam_origin)
+        return False, goal
 
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']

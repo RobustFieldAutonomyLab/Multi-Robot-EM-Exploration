@@ -110,7 +110,7 @@ class MarineNavEnv2:
         num_robots = 0
         iteration = 500
         # start_center = np.array([self.width-10, self.height/2])
-        start_center = np.array([self.width/2-40, self.height/2])
+        start_center = np.array([self.width/2, self.height/2])
         # start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
         # goal_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
 

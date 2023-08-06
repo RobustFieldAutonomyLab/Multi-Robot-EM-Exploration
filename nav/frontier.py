@@ -13,23 +13,19 @@ DEBUG_EM = False
 
 
 class Frontier:
-    def __init__(self, position, origin=None, relative=None, robot_id=None, nearest_frontier=False):
+    def __init__(self, position, origin=None, relative=None, meet_robot_id=None, nearest_frontier=False):
         self.position = position
         # relative position in SLAM framework
         self.position_local = None
         self.selected = False
+        self.nearest_frontier = nearest_frontier
         if origin is not None:
             self.position_local = point_to_local(position[0], position[1], origin)
 
-        self.nearest_frontier = []
-        if nearest_frontier and (robot_id is not None):
-            self.nearest_frontier.append(robot_id)
-
         self.connected_robot = []
-        self.connected_robot_pair = []
         self.relatives = []
-        if robot_id is not None:
-            self.connected_robot.append(robot_id)
+        if meet_robot_id is not None:
+            self.connected_robot.append(meet_robot_id)
         if relative is not None:
             self.relatives.append(relative)
 
@@ -38,9 +34,6 @@ class Frontier:
 
     def add_robot_connection(self, robot_id):
         self.connected_robot.append(robot_id)
-
-    def add_robot_connection_pair(self, robot_id_0, robot_id_1):
-        self.connected_robot_pair.append((robot_id_0, robot_id_1))
 
 
 def compute_distance(frontier_p, robot_p):
@@ -93,7 +86,6 @@ class FrontierGenerator:
             print("boundary value: ", self.boundary_value_i, self.boundary_value_j)
 
         self.frontiers = None
-        self.one_robot_per_landmark_frontier = True
         self.select_rendezvous = True
         self.goal_history = [[] for _ in range(self.num_robot)]
 
@@ -107,7 +99,7 @@ class FrontierGenerator:
         y = index[0] * self.cell_size + self.cell_size * .5 + self.min_y
         return [x, y]
 
-    def generate(self, probability_map, state_list, landmark_list, axis=None):
+    def generate(self, robot_id, probability_map, state_list, landmark_list, axis=None):
         # probability_map: 2d-array, value: [0,1]
         # state_list: [gtsam.Pose2, ...]
         # landmarks_list: [[id, x, y], ...]
@@ -135,56 +127,49 @@ class FrontierGenerator:
 
         self.frontiers = {}
 
-        indices_distances_within_list = [[] for _ in range(len(state_list))]
-        for i, state in enumerate(state_list):
-            state_index = self.position_2_index([state.x(), state.y()])
-            distances = cdist([state_index], indices, metric='euclidean')[0]
-            if DEBUG_FRONTIER:
-                print("robot ", i)
-                print("distances: ", distances)
-            indices_distances_within_list[i] = np.argwhere(
-                np.logical_and(self.min_distance_scaled < distances, distances < self.max_distance_scaled))
+        state = state_list[robot_id][0]
+        state_index = self.position_2_index([state.x(), state.y()])
+        distances = cdist([state_index], indices, metric='euclidean')[0]
+        if DEBUG_FRONTIER:
+            print("robot ", robot_id)
+            print("distances: ", distances)
+        indices_distances_within_list = np.argwhere(
+            np.logical_and(self.min_distance_scaled < distances, distances < self.max_distance_scaled))
 
-            if not self.select_rendezvous:
-                for index_in_range in indices_distances_within_list[i]:
-                    if index_in_range[0] in self.frontiers:
-                        self.frontiers[index_in_range[0]].connected_robot.append(i)
-                    else:
-                        position_this = self.index_2_position(indices[index_in_range[0]])
-                        self.frontiers[index_in_range[0]] = Frontier(position_this,
-                                                                     origin=self.origin,
-                                                                     robot_id=i,
-                                                                     nearest_frontier=True)
-            # Type 1 frontier, the nearest frontier to current position
-            index_this = np.argmin(distances)
+        if not self.select_rendezvous:
+            for index_in_range in indices_distances_within_list:
+                if index_in_range[0] not in self.frontiers:
+                    position_this = self.index_2_position(indices[index_in_range[0]])
+                    self.frontiers[index_in_range[0]] = Frontier(position_this,
+                                                                 origin=self.origin,
+                                                                 nearest_frontier=True)
+        # Type 1 frontier, the nearest frontier to current position
+        index_this = np.argmin(distances)
+        position_this = self.index_2_position(indices[index_this])
+        if DEBUG_FRONTIER:
+            print("index: ", index_this, position_this)
 
-            position_this = self.index_2_position(indices[index_this])
-            if DEBUG_FRONTIER:
-                print("index: ", index_this, position_this)
+        if index_this in self.frontiers:
+            self.frontiers[index_this].nearest_frontier = True
+        else:
+            self.frontiers[index_this] = Frontier(position_this,
+                                                  origin=self.origin,
+                                                  nearest_frontier=True)
 
-            if index_this in self.frontiers:
-                self.frontiers[index_this].nearest_frontier.append(i)
-                if self.select_rendezvous:
-                    self.frontiers[index_this].connected_robot.append(i)
-            else:
-                self.frontiers[index_this] = Frontier(position_this,
-                                                      origin=self.origin,
-                                                      robot_id=i,
-                                                      nearest_frontier=True)
-
-            if i == 0 or not self.select_rendezvous:
-                continue
-
-            for j in range(0, i):
+        if self.select_rendezvous:
+            for j in range(0, self.num_robot):
+                if j == robot_id:
+                    continue
+                    # TODO: finish this part
+                indices_distances_within_list_other = np.argwhere(
+                    np.logical_and(self.min_distance_scaled < distances, distances < self.max_distance_scaled))
                 # Type 3 frontier, potential rendezvous point, within certain range for both robots
-                indices_rendezvous = np.intersect1d(indices_distances_within_list[i], indices_distances_within_list[j])
+                indices_rendezvous = np.intersect1d(indices_distances_within_list, indices_distances_within_list_other)
                 for index_this in indices_rendezvous:
                     if index_this not in self.frontiers:
                         position_this = self.index_2_position(indices[index_this])
                         self.frontiers[index_this] = Frontier(position_this, origin=self.origin)
-                    self.frontiers[index_this].add_robot_connection_pair(j, i)
-
-        state_list_array = [[state.x(), state.y()] for state in state_list]
+                    self.frontiers[index_this].add_robot_(j)
 
         for landmark in landmark_list:
             landmark_index = self.position_2_index([landmark[1], landmark[2]])
@@ -196,7 +181,7 @@ class FrontierGenerator:
                 self.frontiers[index_this].add_relative(landmark[0])
             else:
                 self.frontiers[index_this] = Frontier(position_this, origin=self.origin, relative=landmark[0])
-            distances = cdist([position_this], state_list_array, metric='euclidean')[0]
+            distances = cdist([position_this], [state.x(), state.y()], metric='euclidean')[0]
             if not self.one_robot_per_landmark_frontier:
                 connected_robots = np.argwhere(
                     np.logical_and(self.min_distance < distances, distances < self.max_distance))
