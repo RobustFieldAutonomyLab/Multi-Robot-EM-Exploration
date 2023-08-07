@@ -208,7 +208,7 @@ class Robot:
         self.width = 0.5
         self.r = 0.8  # collision range
         self.detect_r = 0.5 * np.sqrt(self.length ** 2 + self.width ** 2)  # detection range
-        self.goal_dis = 2.0  # max distance to goal considered as reached
+        self.goal_dis = 1.0  # max distance to goal considered as reached
         self.max_speed = 2.0
         self.a = np.array([-0.4, 0.0, 0.4])  # linear accelerations (m/s^2)
         self.w = np.array([-np.pi / 6, 0.0, np.pi / 6])  # angular velocities (rad/s)

@@ -91,6 +91,8 @@ class ExpVisualizer:
         self.slam_result = gtsam.Values()
         self.landmark_list = []
 
+        self.max_exploration_ratio = 0.8
+
         self.cnt = 0
 
     def init_visualize(self,
@@ -105,7 +107,8 @@ class ExpVisualizer:
         self.plot_graph(self.axis_graph)
 
     def plot_grid(self, probability=True, information=True):
-        self.axis_grid.cla()
+        if not DEBUG_FRONTIER:
+            self.axis_grid.cla()
         if probability:
             data = self.virtual_map.get_probability_matrix()
             self.axis_grid.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
@@ -320,7 +323,7 @@ class ExpVisualizer:
                 robot = self.env.robots[i]
                 if robot.reach_goal:
                     # if reach a goal, design a new goal
-                    stop_signal, new_goal = self.generate_frontier()
+                    stop_signal, new_goal = self.generate_frontier(i)
                     robot.reset_goal(new_goal)
                     plot_signal = True
                 actions.append(apf.act(observations[i][0]))
@@ -328,7 +331,8 @@ class ExpVisualizer:
             for i, action in enumerate(actions):
                 self.one_step(action, robot_idx=i)
             if plot_signal:
-                self.axis_grid.cla()
+                if not DEBUG_FRONTIER:
+                    self.axis_grid.cla()
                 self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
                 self.plot_grid()
                 self.plot_robots()
@@ -418,9 +422,14 @@ class ExpVisualizer:
         slam_poses = self.landmark_slam.get_last_key_state_pair(self.slam_origin)
         if not DEBUG_EXP_MAX and not DEBUG_FRONTIER:
             self.axis_grid.cla()
-        self.axis_grid.scatter(goal, goal, marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
-        goal = local_goal_to_world_goal(goal, slam_poses[1][idx], self.slam_origin)
-        return False, goal
+        self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
+        goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
+                                                                   self.env.robots[idx].y,
+                                                                   self.env.robots[idx].theta])
+        if explored_ratio < self.max_exploration_ratio:
+            return False, goal
+        else:
+            return True, goal
 
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']

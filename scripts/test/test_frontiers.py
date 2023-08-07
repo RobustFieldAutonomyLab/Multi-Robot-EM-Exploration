@@ -13,8 +13,7 @@ if 1:
     ev.initialize_apf_agents()
 
     # Do a ten step navigate
-    n = 50
+    n = 200
     visualize = False
     goal_list = []
-    speed = 5
-    ev.explore_one_step(50, "tmp/test_virtual_map")
+    ev.explore_one_step(n, "tmp/test_virtual_map")

@@ -3,37 +3,40 @@ import gtsam
 import math
 import copy
 from scipy.ndimage import convolve
-from scipy.spatial.distance import cdist
 
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
-from nav.utils import get_symbol, point_to_local, world_to_local_values, point_to_world
+from nav.utils import get_symbol, point_to_local, local_to_world_values, point_to_world
 
 DEBUG_FRONTIER = False
 DEBUG_EM = False
 
 
 class Frontier:
-    def __init__(self, position, origin=None, relative=None, meet_robot_id=None, nearest_frontier=False):
+    def __init__(self, position, origin=None, relative=None, nearest_frontier=False):
         self.position = position
         # relative position in SLAM framework
         self.position_local = None
-        self.selected = False
         self.nearest_frontier = nearest_frontier
         if origin is not None:
             self.position_local = point_to_local(position[0], position[1], origin)
 
-        self.connected_robot = []
+        # TODO: Implement case for rendezvous
+        # case rendezvous
+        # self.connected_robot = []
+
+        # case landmark
         self.relatives = []
-        if meet_robot_id is not None:
-            self.connected_robot.append(meet_robot_id)
+
+        # if meet_robot_id is not None:
+        #     self.connected_robot.append(meet_robot_id)
         if relative is not None:
             self.relatives.append(relative)
 
     def add_relative(self, relative):
         self.relatives.append(relative)
 
-    def add_robot_connection(self, robot_id):
-        self.connected_robot.append(robot_id)
+    # def add_robot_connection(self, robot_id):
+    #     self.connected_robot.append(robot_id)
 
 
 def compute_distance(frontier_p, robot_p):
@@ -60,12 +63,12 @@ class FrontierGenerator:
 
         self.nearest_frontier_flag = parameters["nearest_frontier_flag"]
 
-        self.max_distance = 30
-        self.min_distance = 20
+        self.max_dist_robot = 20
+        self.min_dist_landmark = 10
         self.allocation_max_distance = 30
 
-        self.max_distance_scaled = float(self.max_distance) / float(self.cell_size)
-        self.min_distance_scaled = float(self.min_distance) / float(self.cell_size)
+        self.max_dist_robot_scaled = float(self.max_dist_robot) / float(self.cell_size)
+        self.max_dist_landmark_scaled = float(self.min_dist_landmark) / float(self.cell_size)
 
         self.free_threshold = 0.45
         self.obstacle_threshold = 0.55
@@ -86,7 +89,6 @@ class FrontierGenerator:
             print("boundary value: ", self.boundary_value_i, self.boundary_value_j)
 
         self.frontiers = None
-        self.select_rendezvous = True
         self.goal_history = [[] for _ in range(self.num_robot)]
 
     def position_2_index(self, position):
@@ -99,12 +101,8 @@ class FrontierGenerator:
         y = index[0] * self.cell_size + self.cell_size * .5 + self.min_y
         return [x, y]
 
-    def generate(self, robot_id, probability_map, state_list, landmark_list, axis=None):
-        # probability_map: 2d-array, value: [0,1]
-        # state_list: [gtsam.Pose2, ...]
-        # landmarks_list: [[id, x, y], ...]
-        if len(state_list) != self.num_robot:
-            raise ValueError("len(state_list) not equal to num of robots!")
+    def generate_potential_frontier_indices(self, probability_map):
+        # generate frontier candidates
         data_free = probability_map < self.free_threshold
         data_occupied = probability_map > self.obstacle_threshold
         data = data_free | data_occupied
@@ -121,28 +119,35 @@ class FrontierGenerator:
 
         frontier_candidate_pool_data = data & (neighbor_sum < self.max_visited_neighbor)
         indices = np.argwhere(frontier_candidate_pool_data)
-
         if DEBUG_FRONTIER:
             print("indices: ", indices)
+        return explored_ratio, indices
 
+    def generate(self, robot_id, probability_map, state_list, landmark_list, axis=None):
+        # probability_map: 2d-array, value: [0,1]
+        # robot_id: int, id of the robot to generate frontiers
+        # state_list: [gtsam.Pose2, ...]
+        # landmarks_list: [[id, x, y], ...]
+        if len(state_list) != self.num_robot:
+            raise ValueError("len(state_list) not equal to num of robots!")
+        explored_ratio, indices = self.generate_potential_frontier_indices(probability_map)
+
+        # clear history
         self.frontiers = {}
 
-        state = state_list[robot_id][0]
-        state_index = self.position_2_index([state.x(), state.y()])
-        distances = cdist([state_index], indices, metric='euclidean')[0]
+        # state and index of the robot who needs a new goal (target robot)
+        state = state_list[robot_id]
+        state_index = np.array(self.position_2_index([state.x(), state.y()]))
+
+        # distance between the target robot abd frontier candidates
+        distances = np.linalg.norm(indices - state_index, axis=1)
         if DEBUG_FRONTIER:
             print("robot ", robot_id)
             print("distances: ", distances)
-        indices_distances_within_list = np.argwhere(
-            np.logical_and(self.min_distance_scaled < distances, distances < self.max_distance_scaled))
 
-        if not self.select_rendezvous:
-            for index_in_range in indices_distances_within_list:
-                if index_in_range[0] not in self.frontiers:
-                    position_this = self.index_2_position(indices[index_in_range[0]])
-                    self.frontiers[index_in_range[0]] = Frontier(position_this,
-                                                                 origin=self.origin,
-                                                                 nearest_frontier=True)
+        # find the frontiers close enough to the target robot
+        indices_distances_within_list = np.argwhere(distances < self.max_dist_robot_scaled)
+
         # Type 1 frontier, the nearest frontier to current position
         index_this = np.argmin(distances)
         position_this = self.index_2_position(indices[index_this])
@@ -155,117 +160,78 @@ class FrontierGenerator:
             self.frontiers[index_this] = Frontier(position_this,
                                                   origin=self.origin,
                                                   nearest_frontier=True)
+        for index_in_range in indices_distances_within_list:
+            if index_in_range[0] not in self.frontiers:
+                position_this = self.index_2_position(indices[index_in_range[0]])
+                self.frontiers[index_in_range[0]] = Frontier(position_this, origin=self.origin)
 
-        if self.select_rendezvous:
-            for j in range(0, self.num_robot):
-                if j == robot_id:
-                    continue
-                    # TODO: finish this part
-                indices_distances_within_list_other = np.argwhere(
-                    np.logical_and(self.min_distance_scaled < distances, distances < self.max_distance_scaled))
-                # Type 3 frontier, potential rendezvous point, within certain range for both robots
-                indices_rendezvous = np.intersect1d(indices_distances_within_list, indices_distances_within_list_other)
-                for index_this in indices_rendezvous:
-                    if index_this not in self.frontiers:
-                        position_this = self.index_2_position(indices[index_this])
-                        self.frontiers[index_this] = Frontier(position_this, origin=self.origin)
-                    self.frontiers[index_this].add_robot_(j)
-
+        # Type 2 frontier, re-visitation of existing landmarks
         for landmark in landmark_list:
-            landmark_index = self.position_2_index([landmark[1], landmark[2]])
-            distances = cdist([landmark_index], indices, metric='euclidean')[0]
-            # Type 2 frontier, visitation of existing landmarks
-            index_this = np.argmin(distances)
-            position_this = self.index_2_position(indices[index_this])
-            if index_this in self.frontiers:
-                self.frontiers[index_this].add_relative(landmark[0])
-            else:
-                self.frontiers[index_this] = Frontier(position_this, origin=self.origin, relative=landmark[0])
-            distances = cdist([position_this], [state.x(), state.y()], metric='euclidean')[0]
-            if not self.one_robot_per_landmark_frontier:
-                connected_robots = np.argwhere(
-                    np.logical_and(self.min_distance < distances, distances < self.max_distance))
-                if connected_robots != []:
-                    for robot_id in connected_robots:
-                        if robot_id not in self.frontiers[index_this].connected_robot:
-                            self.frontiers[index_this].add_robot_connection(robot_id)
-            else:
-                if self.frontiers[index_this].connected_robot == []:
-                    self.frontiers[index_this].add_robot_connection(np.argmin(distances))
+            landmark_index = np.array(self.position_2_index([landmark[1], landmark[2]]))
+            distances = np.linalg.norm(indices - landmark_index, axis=1)
+            # find the candidates close enough to the landmark
+            indices_distances_within_list = np.argwhere(distances < self.max_dist_landmark_scaled)
+
+            for index_this in indices_distances_within_list:
+                if index_this[0] in self.frontiers:
+                    self.frontiers[index_this[0]].add_relative(landmark[0])
+                else:
+                    position_this = self.index_2_position(indices[index_this[0]])
+                    self.frontiers[index_this[0]] = Frontier(position_this, origin=self.origin, relative=landmark[0])
 
         if DEBUG_FRONTIER:
             for frontier in self.frontiers.values():
-                print("frontier: ", frontier.connected_robot)
+                print("frontier: ", frontier.position)
 
         return explored_ratio
 
-    def find_frontier_nearest_neighbor(self, robot_id):
+    def find_frontier_nearest_neighbor(self):
         for value in self.frontiers.values():
-            if value.connected_robot:
-                if value.nearest_frontier is not None:
-                    if robot_id in value.nearest_frontier:
-                        return value.position
+            if value.nearest_frontier:
+                return value.position
 
-    def choose(self, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
-        goals = [[] for _ in range(self.num_robot)]
-        if self.nearest_frontier_flag:
-            for i in range(0, self.num_robot):
-                goals[i] = self.find_frontier_nearest_neighbor(i)
-            return goals
+    def choose(self, robot_id, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
+        if self.nearest_frontier_flag or any(not sublist for sublist in self.goal_history):
+            goal = self.find_frontier_nearest_neighbor()
+            self.goal_history[robot_id].append(goal)
+            return goal
 
+        newest_goal_local = []
+        for goals in self.goal_history:
+            newest_goal_local.append(point_to_local(goals[-1][0], goals[-1][1], self.origin))
+        robot_state_idx_position_goal_local = robot_state_idx_position_local + (newest_goal_local,)
         emt = ExpectationMaximizationTrajectory(radius=self.radius,
-                                                robot_state_idx_position=robot_state_idx_position_local,
+                                                robot_state_idx_position_goal=robot_state_idx_position_goal_local,
                                                 landmarks=landmark_list_local,
                                                 isam=isam)
-        is_goal_decided = [False for _ in range(self.num_robot)]
         if DEBUG_FRONTIER:
             axis.cla()
-        for robot_id in range(self.num_robot):
-            if is_goal_decided[robot_id]:
-                continue
-            cost_list = []
-            for key, frontier in self.frontiers.items():
-                if frontier.selected:
-                    continue
-                for id_pair in frontier.connected_robot_pair:
-                    if robot_id in id_pair:
-                        result, marginals = emt.do(robot_id=id_pair,
-                                                   frontier_position=(frontier.position_local, frontier.position_local),
-                                                   origin=self.origin,
-                                                   axis=axis)
-                        cost_this = self.compute_utility(virtual_map, result, marginals,
-                                                         (robot_state_idx_position_local[1][id_pair[0]],
-                                                          robot_state_idx_position_local[1][id_pair[1]]),
-                                                         frontier.position_local, robot_id)
-                        if id_pair[0] == robot_id:
-                            cost_list.append((key, cost_this, id_pair[1]))
-                        else:
-                            cost_list.append((key, cost_this, id_pair[0]))
-                if robot_id in frontier.connected_robot:
-                    # return the transformed virtual SLAM result for the calculation of the information of virtual map
-                    result, marginals = emt.do(robot_id=robot_id,
-                                               frontier_position=frontier.position_local,
-                                               origin=self.origin,
-                                               axis=axis)
-                    # no need to reset, since the update_information will reset the virtual map
-                    cost_this = self.compute_utility(virtual_map, result, marginals,
-                                                     robot_state_idx_position_local[1][robot_id],
-                                                     frontier.position_local, robot_id)
-                    cost_list.append((key, cost_this))
-            if cost_list == []:
-                # if no frontier is available, return the nearest frontier
-                goals[robot_id] = self.find_frontier_nearest_neighbor(robot_id)
-            else:
-                min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
-                goals[robot_id] = self.frontiers[min_cost[0]].position
-                is_goal_decided[robot_id] = True
-                if len(min_cost) > 2:
-                    goals[min_cost[2]] = self.frontiers[min_cost[0]].position
-                    is_goal_decided[min_cost[2]] = True
-                    # This means the robot is going to a rendezvous point
-        for i in range(self.num_robot):
-            self.goal_history[i].append(goals[i])
-        return goals
+            scatters_x = []
+            scatters_y = []
+            for frontier in self.frontiers.values():
+                scatters_x.append(frontier.position[0])
+                scatters_y.append(frontier.position[1])
+            axis.scatter(scatters_x, scatters_y, c='y', marker='.')
+        cost_list = []
+        for key, frontier in self.frontiers.items():
+            # return the transformed virtual SLAM result for the calculation of the information of virtual map
+            result, marginals = emt.do(robot_id=robot_id,
+                                       frontier_position=frontier.position_local,
+                                       origin=self.origin,
+                                       axis=axis)
+            # no need to reset, since the update_information will reset the virtual map
+            cost_this = self.compute_utility(virtual_map, result, marginals,
+                                             robot_state_idx_position_local[1][robot_id],
+                                             frontier.position_local, robot_id)
+            cost_list.append((key, cost_this))
+        if cost_list == []:
+            # if no frontier is available, return the nearest frontier
+            goal = self.find_frontier_nearest_neighbor()
+        else:
+            min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
+            goal = self.frontiers[min_cost[0]].position
+        self.goal_history[robot_id].append(goal)
+        return goal
 
     def compute_utility(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
                         robot_p, frontier_p, robot_id):
@@ -321,7 +287,7 @@ class FrontierGenerator:
 
 # Everything in SLAM frame in ExpectationMaximizationTrajectory
 class ExpectationMaximizationTrajectory:
-    def __init__(self, radius, robot_state_idx_position, landmarks, isam: tuple):
+    def __init__(self, radius, robot_state_idx_position_goal, landmarks, isam: tuple):
         # for odometry measurement
         self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
 
@@ -346,8 +312,9 @@ class ExpectationMaximizationTrajectory:
 
         self.new_factor_start_index = self.isam.getVariableIndex().nFactors()
 
-        self.robot_state_idx = robot_state_idx_position[0]
-        self.robot_state_position = robot_state_idx_position[1]
+        self.robot_state_idx = robot_state_idx_position_goal[0]
+        self.robot_state_position = robot_state_idx_position_goal[1]
+        self.robot_state_goal = robot_state_idx_position_goal[2]
 
     def generate_virtual_waypoints(self, robot_id, state_next):
         # return numpy.ndarray
@@ -415,7 +382,7 @@ class ExpectationMaximizationTrajectory:
                                     gtsam.Pose2(waypoint[0], waypoint[1], waypoint[2]))
 
             # calculate Euclidean distance between waypoint and landmarks
-            distances = cdist([waypoint[0:2]], self.landmarks_position, metric='euclidean')[0]
+            distances = np.linalg.norm(self.landmarks_position - np.array(waypoint[0:2]), axis=1)
             landmark_indices = np.argwhere(distances < self.radius)
             if landmark_indices != []:
                 # add landmark observation factor
@@ -452,7 +419,11 @@ class ExpectationMaximizationTrajectory:
             repeat_times = length0 - length1
             repeated_rows = np.repeat(waypoints1[-1:], repeat_times, axis=0)
             waypoints1 = np.concatenate((waypoints1, repeated_rows), axis=0)
-        distances = np.linalg.norm(waypoints0[:, 0:2] - waypoints1[:, 0:2], axis=1)
+        try:
+            distances = np.linalg.norm(waypoints0[:, 0:2] - waypoints1[:, 0:2], axis=1)
+        except IndexError:
+            print("waypoint0: ", length0, waypoints0)
+            print("waypoint1: ", length1, waypoints1)
         # find out the index of waypoints where robot could observe each other
         robot_indices = np.argwhere(distances < self.radius)
         for robot_index in robot_indices:
@@ -473,20 +444,24 @@ class ExpectationMaximizationTrajectory:
         return graph
 
     def generate_virtual_observation_graph(self, frontier_position, robot_id):
-        # the variables are either all tuples or all not tuples TODO: add safety check for this
         graph = gtsam.NonlinearFactorGraph()
         initial_estimate = gtsam.Values()
-        if not isinstance(frontier_position, tuple):
-            virtual_waypoints = self.generate_virtual_waypoints(robot_id, frontier_position)
-            graph, initial_estimate = self.waypoints2landmark_observations(virtual_waypoints, robot_id)
-        else:
-            virtual_waypoints = [[] for _ in range(len(frontier_position))]
-            for i in range(len(frontier_position)):
-                virtual_waypoints[i] = self.generate_virtual_waypoints(robot_id[i], frontier_position[i])
-                self.waypoints2landmark_observations(virtual_waypoints[i], robot_id[i],
-                                                     graph=graph,
-                                                     initial_estimate=initial_estimate)
-            self.waypoints2robot_observation(tuple(virtual_waypoints), robot_id, graph=graph)
+        virtual_waypoints = [[] for _ in range(len(self.robot_state_idx))]
+        for i in range(len(self.robot_state_idx)):
+            # set the target robot's virtual goal as the frontier position, other robots just reach existing goal
+            if i == robot_id:
+                virtual_goal = frontier_position
+            else:
+                virtual_goal = self.robot_state_goal[i]
+            virtual_waypoints[i] = self.generate_virtual_waypoints(i, virtual_goal)
+            self.waypoints2landmark_observations(virtual_waypoints[i], i,
+                                                 graph=graph,
+                                                 initial_estimate=initial_estimate)
+        for i in range(len(self.robot_state_idx)):
+            if i == robot_id or len(virtual_waypoints[i]) == 0:
+                continue
+            self.waypoints2robot_observation(tuple([virtual_waypoints[robot_id], virtual_waypoints[i]]),
+                                             tuple([robot_id, i]), graph=graph)
         return graph, initial_estimate
 
     def optimize_virtual_observation_graph(self, graph: gtsam.NonlinearFactorGraph, initial_estimate: gtsam.Values):
@@ -508,7 +483,7 @@ class ExpectationMaximizationTrajectory:
         graph, initial_estimate = self.generate_virtual_observation_graph(frontier_position=frontier_position,
                                                                           robot_id=robot_id)
         result, marginals = self.optimize_virtual_observation_graph(graph, initial_estimate)
-        result = world_to_local_values(result, origin)
+        result = local_to_world_values(result, origin)
 
         # draw the optimized result
         if DEBUG_FRONTIER:

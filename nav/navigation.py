@@ -2,7 +2,7 @@ import copy
 
 import numpy as np
 import gtsam
-from nav.utils import get_symbol, world_to_local_values
+from nav.utils import get_symbol, local_to_world_values
 
 DEBUG_NAV = False
 
@@ -127,7 +127,7 @@ class LandmarkSLAM:
     def get_result(self, origin=None):
         if origin is None:
             origin = [0, 0, 0]
-        return world_to_local_values(self.result, origin)
+        return local_to_world_values(self.result, origin)
 
     def get_latest_state(self, origin=None):
         if origin is None:

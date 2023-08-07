@@ -47,7 +47,7 @@ def point_to_world(x, y, origin):
     return [t_this[0, 0], t_this[1, 0]]
 
 
-def world_to_local_values(values: gtsam.Values, origin):
+def local_to_world_values(values: gtsam.Values, origin):
     result = gtsam.Values()
     origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
     for key in values.keys():
