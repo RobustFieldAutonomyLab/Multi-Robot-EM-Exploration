@@ -131,6 +131,8 @@ class FrontierGenerator:
         if len(state_list) != self.num_robot:
             raise ValueError("len(state_list) not equal to num of robots!")
         explored_ratio, indices = self.generate_potential_frontier_indices(probability_map)
+        if indices is None:
+            return explored_ratio, False
 
         # clear history
         self.frontiers = {}
@@ -183,7 +185,7 @@ class FrontierGenerator:
             for frontier in self.frontiers.values():
                 print("frontier: ", frontier.position)
 
-        return explored_ratio
+        return explored_ratio, True
 
     def find_frontier_nearest_neighbor(self):
         for value in self.frontiers.values():

@@ -408,9 +408,12 @@ class ExpVisualizer:
         self.virtual_map.update(self.slam_result)  # , ev.landmark_slam.get_marginal())
         probability_map = self.virtual_map.get_probability_matrix()
         self.landmark_list = self.landmark_slam.get_landmark_list(self.slam_origin)
-        explored_ratio = self.frontier_generator.generate(idx, probability_map,
+        explored_ratio, frontiers_generated = self.frontier_generator.generate(idx, probability_map,
                                                           self.landmark_slam.get_latest_state(self.slam_origin),
                                                           self.landmark_list, self.axis_grid)
+        if not frontiers_generated:
+            assert "No more frontiers."
+
         if explored_ratio > self.exploration_terminate_ratio:
             return True, None
 
