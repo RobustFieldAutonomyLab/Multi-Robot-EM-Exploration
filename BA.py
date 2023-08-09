@@ -9,7 +9,7 @@ class BA_agent:
         self.w = w # available angular velocity (action 2)
         self.detect_angle = 2 * np.pi / 3 # sonar detection angle range
         self.angle_margin = 10*np.pi/180 # margin of obstacle-free region
-        self.min_vel = 1.0 # if velocity is lower than the threshold, mandate acceleration           
+        self.min_vel = 2.0 # if velocity is lower than the threshold, mandate acceleration
 
     def act(self, observation):
         # 1. If no obstacles apear in the direction to the goal, 

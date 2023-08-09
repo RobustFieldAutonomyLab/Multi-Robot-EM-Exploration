@@ -41,7 +41,7 @@ class MarineNavEnv2:
         self.p = 0.8  # max allowable relative speed at another vortex core
         self.v_range = [5, 10]  # speed range of the vortex (at the edge of core)
         self.obs_r_range = [1, 1]  # radius range of the obstacle
-        self.clear_r = 5.0  # radius of area centered at the start(goal) of each robot,
+        self.clear_r = 2.0  # radius of area centered at the start(goal) of each robot,
         # where no vortex cores, static obstacles, or the start(goal) of other robots exist
         self.reset_start_and_goal = True  # if the start and goal position be set randomly in reset()
         self.start = np.array([5.0, 5.0])  # robot start position
@@ -53,8 +53,8 @@ class MarineNavEnv2:
         self.discount = 0.99
         self.num_cores = 0  # number of vortices
         self.num_obs = 60  # number of static obstacles
-        self.min_start_goal_dis = 2.0
-        self.num_cooperative = 3  # number of cooperative robots
+        self.min_start_goal_dis = 3.0
+        self.num_cooperative = 5  # number of cooperative robots
         self.num_non_cooperative = 0  # number of non-cooperative robots
 
         self.robots = []  # list of robots
@@ -108,7 +108,7 @@ class MarineNavEnv2:
 
         ##### generate robots with randomly generated start and goal 
         num_robots = 0
-        iteration = 500
+        iteration = 1000
         # start_center = np.array([self.width-10, self.height/2])
         start_center = np.array([self.width/2, self.height/2])
         # start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
@@ -117,7 +117,7 @@ class MarineNavEnv2:
         while True:
             start = self.rd.uniform(low=start_center - np.array([5.0, 5.0]), high=start_center + np.array([5.0, 5.0]))
             # goal = self.rd.uniform(low=goal_center - np.array([5.0, 5.0]), high=goal_center + np.array([5.0, 5.0]))
-            goal = self.rd.uniform(low=start - np.array([4.0, 4.0]), high=start - np.array([2.0, 2.0]))
+            goal = self.rd.uniform(low=start - np.array([4.0, 4.0]), high=start)
             iteration -= 1
             if self.check_start_and_goal(start, goal):
                 rob = robot.Robot(robot_types[num_robots])

@@ -119,6 +119,9 @@ class OccupancyMap:
         min_row = max(row_int - radius, 0)
         max_col = min(col_int + radius, self.num_cols)
         max_row = min(row_int + radius, self.num_rows)
+        # ignore the part outside the region of interest
+        if max_row - min_row <= 0 or max_col - min_col <= 0:
+            return
         indices = np.indices((max_row - min_row, max_col - min_col)).reshape(2, -1).T
         indices[:, 0] += min_row
         indices[:, 1] += min_col
@@ -565,5 +568,10 @@ class VirtualMap:
                 if type == "A":
                     sum_uncertainty += np.trace(self.data[i, j].covariance())
                 elif type == "D":
-                    sum_uncertainty += 1.0 / np.linalg.det(self.data[i, j].information)
+                    if np.linalg.det(self.data[i, j].information) < 1e-4:
+                        sum_uncertainty += 1000
+                        # print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information))
+                        # print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()))
+                    else :
+                        sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
         return sum_uncertainty

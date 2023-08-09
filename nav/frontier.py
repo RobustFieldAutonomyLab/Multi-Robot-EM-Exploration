@@ -8,7 +8,7 @@ from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, Ro
 from nav.utils import get_symbol, point_to_local, local_to_world_values, point_to_world
 
 DEBUG_FRONTIER = False
-DEBUG_EM = False
+DEBUG_EM = True
 
 
 class Frontier:
@@ -129,6 +129,8 @@ class FrontierGenerator:
         # state_list: [gtsam.Pose2, ...]
         # landmarks_list: [[id, x, y], ...]
         if len(state_list) != self.num_robot:
+            print("state_list: ", state_list)
+            print("num_robot: ", self.num_robot)
             raise ValueError("len(state_list) not equal to num of robots!")
         explored_ratio, indices = self.generate_potential_frontier_indices(probability_map)
         if indices is None:

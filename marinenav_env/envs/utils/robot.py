@@ -211,7 +211,7 @@ class Robot:
         self.goal_dis = 1.0  # max distance to goal considered as reached
         self.max_speed = 2.0
         self.a = np.array([-0.4, 0.0, 0.4])  # linear accelerations (m/s^2)
-        self.w = np.array([-np.pi / 6, 0.0, np.pi / 6])  # angular velocities (rad/s)
+        self.w = np.array([-np.pi / 3, -np.pi / 6, 0.0, np.pi / 6, np.pi / 3])  # angular velocities (rad/s)
         self.compute_k()  # cofficient of water resistance
         self.compute_actions()  # list of actions
 
