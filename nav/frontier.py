@@ -3,13 +3,14 @@ import gtsam
 import math
 import copy
 from scipy.ndimage import convolve
+from matplotlib.patches import Rectangle
 
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
 from nav.utils import get_symbol, point_to_local, local_to_world_values, point_to_world
 
 DEBUG_FRONTIER = False
 DEBUG_EM = True
-
+PLOT_VIRTUAL_MAP = True
 
 class Frontier:
     def __init__(self, position, origin=None, relative=None, nearest_frontier=False):
@@ -79,8 +80,8 @@ class FrontierGenerator:
 
         self.virtual_move_length = 0.5
 
-        self.d_weight = 100
-        self.t_weight = 5000
+        self.d_weight = 10
+        self.t_weight = 50
 
         self.boundary_ratio = 0.1  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_ratio / self.cell_size * (self.max_x - self.min_x))
@@ -133,6 +134,12 @@ class FrontierGenerator:
             print("num_robot: ", self.num_robot)
             raise ValueError("len(state_list) not equal to num of robots!")
         explored_ratio, indices = self.generate_potential_frontier_indices(probability_map)
+        if PLOT_VIRTUAL_MAP:
+            axis.cla()
+            for indice in indices:
+                point_index = np.array(self.index_2_position(indice))
+                rectangle = Rectangle(point_index - 2, 4, 4, linewidth=.5, edgecolor='tab:blue', facecolor='tab:blue', alpha = 0.3)
+                axis.add_patch(rectangle)
         if indices == []:
             return explored_ratio, False
 
@@ -194,6 +201,24 @@ class FrontierGenerator:
             if value.nearest_frontier:
                 return value.position
 
+    def draw_frontiers(self, axis):
+        if DEBUG_FRONTIER:
+            axis.cla()
+            scatters_x = []
+            scatters_y = []
+            for frontier in self.frontiers.values():
+                scatters_x.append(frontier.position[0])
+                scatters_y.append(frontier.position[1])
+            axis.scatter(scatters_x, scatters_y, c='y', marker='.')
+        if PLOT_VIRTUAL_MAP:
+            for frontier in self.frontiers.values():
+                if frontier.relatives == []:
+                    axis.scatter(frontier.position[0], frontier.position[1],
+                                 c='tab:purple', marker='o', s = 300, zorder = 5)
+                else:
+                    axis.scatter(frontier.position[0], frontier.position[1],
+                                 c='tab:orange', marker='o', s = 300, zorder = 5)
+
     def choose(self, robot_id, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
         if self.nearest_frontier_flag or any(not sublist for sublist in self.goal_history):
             goal = self.find_frontier_nearest_neighbor()
@@ -208,14 +233,8 @@ class FrontierGenerator:
                                                 robot_state_idx_position_goal=robot_state_idx_position_goal_local,
                                                 landmarks=landmark_list_local,
                                                 isam=isam)
-        if DEBUG_FRONTIER:
-            axis.cla()
-            scatters_x = []
-            scatters_y = []
-            for frontier in self.frontiers.values():
-                scatters_x.append(frontier.position[0])
-                scatters_y.append(frontier.position[1])
-            axis.scatter(scatters_x, scatters_y, c='y', marker='.')
+        self.draw_frontiers(axis)
+
         cost_list = []
         for key, frontier in self.frontiers.items():
             # return the transformed virtual SLAM result for the calculation of the information of virtual map
@@ -462,7 +481,7 @@ class ExpectationMaximizationTrajectory:
                                                  graph=graph,
                                                  initial_estimate=initial_estimate)
         for i in range(len(self.robot_state_idx)):
-            if i == robot_id or len(virtual_waypoints[i]) == 0:
+            if i == robot_id or len(virtual_waypoints[i]) == 0 or len(virtual_waypoints[robot_id]) == 0:
                 continue
             self.waypoints2robot_observation(tuple([virtual_waypoints[robot_id], virtual_waypoints[i]]),
                                              tuple([robot_id, i]), graph=graph)

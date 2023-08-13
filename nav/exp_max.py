@@ -9,7 +9,7 @@ import copy
 from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
-from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER
+from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER, PLOT_VIRTUAL_MAP
 from nav.utils import point_to_local, point_to_world
 
 DEBUG_EXP_MAX = False
@@ -41,7 +41,7 @@ def plot_info_ellipse(position, info, axis, nstd=.2, **kwargs):
     theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
 
     width, height = 2 * nstd * np.sqrt(vals)
-    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs)
+    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs, color = 'tab:gray', alpha = 0.5)
 
     axis.add_artist(ellip)
     return ellip
@@ -101,14 +101,12 @@ class ExpVisualizer:
         # Mode 1 (default): Display an episode
         self.fig = plt.figure(figsize=(32, 16))
         spec = self.fig.add_gridspec(5, 4)
-        self.axis_graph = self.fig.add_subplot(spec[:, :2])
-        self.axis_grid = self.fig.add_subplot(spec[:, 2:4])
-
-        self.plot_graph(self.axis_graph)
+        # self.axis_graph = self.fig.add_subplot(spec[:, :2])
+        self.axis_grid = self.fig.add_subplot(spec[:, :2])
+        if self.axis_graph is not None:
+            self.plot_graph(self.axis_graph)
 
     def plot_grid(self, probability=True, information=True):
-        if not DEBUG_FRONTIER:
-            self.axis_grid.cla()
         if probability:
             data = self.virtual_map.get_probability_matrix()
             self.axis_grid.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
@@ -124,7 +122,7 @@ class ExpVisualizer:
                     plot_info_ellipse(np.array([virtual_landmark.x,
                                                 virtual_landmark.y]),
                                       virtual_landmark.information, self.axis_grid,
-                                      nstd=self.virtual_map.cell_size * 0.04)
+                                      nstd=self.virtual_map.cell_size * 0.2)
 
     def plot_graph(self, axis):
         # plot current velocity in the mapf
@@ -213,21 +211,22 @@ class ExpVisualizer:
 
             angle_d = robot.theta / np.pi * 180
             c = 'g' if robot.cooperative else 'r'
-            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Rectangle(xy, robot.length,
-                                                                                    robot.width, color=c,
-                                                                                    angle=angle_d, zorder=7)))
-            self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Circle((robot.x, robot.y),
-                                                                                 robot.perception.range, color=c,
-                                                                                 alpha=0.2)))
-            self.robots_plot.append(self.axis_graph.text(robot.x - 1, robot.y + 1, str(i), color="yellow", fontsize=15))
+            if self.axis_graph is not None:
+                self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Rectangle(xy, robot.length,
+                                                                                        robot.width, color=c,
+                                                                                        angle=angle_d, zorder=7)))
+                self.robots_plot.append(self.axis_graph.add_patch(mpl.patches.Circle((robot.x, robot.y),
+                                                                                     robot.perception.range, color=c,
+                                                                                     alpha=0.2)))
+                self.robots_plot.append(self.axis_graph.text(robot.x - 1, robot.y + 1, str(i), color="yellow", fontsize=15))
 
-            if self.robots_last_pos[i] != []:
-                h = self.axis_graph.plot((self.robots_last_pos[i][0], robot.x),
-                                         (self.robots_last_pos[i][1], robot.y),
-                                         color='tab:orange', linestyle='--')
-                self.robots_traj_plot[i].append(h)
+                if self.robots_last_pos[i] != []:
+                    h = self.axis_graph.plot((self.robots_last_pos[i][0], robot.x),
+                                             (self.robots_last_pos[i][1], robot.y),
+                                             color='tab:orange', linestyle='--')
+                    self.robots_traj_plot[i].append(h)
 
-            self.robots_last_pos[i] = [robot.x, robot.y]
+                    self.robots_last_pos[i] = [robot.x, robot.y]
 
     def one_step(self, action, robot_idx=None):
         if robot_idx is not None:
@@ -331,8 +330,6 @@ class ExpVisualizer:
             for i, action in enumerate(actions):
                 self.one_step(action, robot_idx=i)
             if plot_signal:
-                if not DEBUG_FRONTIER:
-                    self.axis_grid.cla()
                 self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
                 self.plot_grid()
                 self.plot_robots()
@@ -423,9 +420,19 @@ class ExpVisualizer:
                                               self.virtual_map,
                                               self.axis_grid)
         slam_poses = self.landmark_slam.get_last_key_state_pair(self.slam_origin)
-        if not DEBUG_EXP_MAX and not DEBUG_FRONTIER:
+        if not DEBUG_EXP_MAX and not DEBUG_FRONTIER and not PLOT_VIRTUAL_MAP:
             self.axis_grid.cla()
-        self.axis_grid.scatter(goal[0], goal[1], marker=".", color="yellow", s=300, zorder=4, alpha=0.5)
+        self.axis_grid.scatter(goal[0], goal[1], marker="*", color="red", s=300, zorder=6)#, alpha=0.5)
+        if PLOT_VIRTUAL_MAP:
+            for robot_id_this in range(self.env.num_cooperative):
+                if robot_id_this != idx:
+                    self.axis_grid.scatter(int(self.env.robots[robot_id_this].goal[0]),
+                                           int(self.env.robots[robot_id_this].goal[1]),
+                                           marker = 'o', s = 300, c='yellow', zorder = 5)
+                else:
+                    self.axis_grid.scatter(self.env.robots[robot_id_this].x,
+                                           self.env.robots[robot_id_this].y,
+                                           marker = '*', s = 300, c='black', zorder = 5)
         goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
                                                                    self.env.robots[idx].y,
                                                                    self.env.robots[idx].theta])

@@ -54,7 +54,7 @@ class MarineNavEnv2:
         self.num_cores = 0  # number of vortices
         self.num_obs = 60  # number of static obstacles
         self.min_start_goal_dis = 3.0
-        self.num_cooperative = 5  # number of cooperative robots
+        self.num_cooperative = 3  # number of cooperative robots
         self.num_non_cooperative = 0  # number of non-cooperative robots
 
         self.robots = []  # list of robots
@@ -177,7 +177,8 @@ class MarineNavEnv2:
     def reset_robot(self, rob):
         # reset robot state
         rob.init_theta = self.rd.uniform(low=0.0, high=2 * np.pi)
-        rob.init_speed = self.rd.uniform(low=0.0, high=rob.max_speed)
+        # rob.init_speed = self.rd.uniform(low=0.0, high=rob.max_speed)
+        rob.init_speed = rob.max_speed
         current_v = self.get_velocity(rob.start[0], rob.start[1])
         rob.reset_state(current_velocity=current_v)
 
