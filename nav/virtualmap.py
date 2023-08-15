@@ -315,7 +315,7 @@ def pose_2_point_measurement(pose: np.ndarray, point, sigma_b, sigma_r, jacobian
 def pose_2_point_measurement_batch(pose_batch, point_batch):
     n1, n2, n3 = point_batch.shape
     n5, n4 = pose_batch.shape
-    pose_batch = pose_batch.repeat(1, n2).reshape(n5,n2,n4)
+    pose_batch = pose_batch.repeat(1, n2).reshape(n5, n2, n4)
 
     bearing_batch, Hx_bearing_batch, Hl_bearing_batch = get_bearing_pose_point_batch(pose_batch.view(-1, n4),
                                                                                      point_batch.view(-1, n3))
@@ -519,7 +519,8 @@ class VirtualMap:
     def find_neighbor_indices_batch(self, point_batch):
         col = (point_batch[:, 0] - self.minX) / self.cell_size
         row = (point_batch[:, 1] - self.minY) / self.cell_size
-        center_batch = torch.stack([torch.round(row).to(dtype=torch.int32), torch.round(col).to(dtype=torch.int32)], dim=-1)
+        center_batch = torch.stack([torch.round(row).to(dtype=torch.int32), torch.round(col).to(dtype=torch.int32)],
+                                   dim=-1)
         radius = math.ceil(self.radius / self.cell_size)
         indices = self.indices_within.clone()
         indices = indices + center_batch[:, None, :]
@@ -559,19 +560,20 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_sum_uncertainty(self, type = "D"):
+    def get_sum_uncertainty(self, type_optima="D"):
         sum_uncertainty = 0.0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
-                if self.data[i,j].probability > 0.49:
+                # not yet observed
+                if self.data[i, j].probability > 0.49:
                     continue
-                if type == "A":
+                if type_optima == "A":
                     sum_uncertainty += np.trace(self.data[i, j].covariance())
-                elif type == "D":
+                elif type_optima == "D":
                     if np.linalg.det(self.data[i, j].information) < 1e-4:
                         sum_uncertainty += 10000
                         print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information))
                         print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()))
-                    else :
+                    else:
                         sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
         return sum_uncertainty

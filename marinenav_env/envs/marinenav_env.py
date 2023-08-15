@@ -110,13 +110,14 @@ class MarineNavEnv2:
         num_robots = 0
         iteration = 1000
         # start_center = np.array([self.width-10, self.height/2])
-        start_center = np.array([self.width/2, self.height/2])
+        # start_center = np.array([self.width/2, self.height/2])
         # start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
         # goal_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
 
         while True:
-            start = self.rd.uniform(low=start_center - np.array([5.0, 5.0]), high=start_center + np.array([5.0, 5.0]))
+            # start = self.rd.uniform(low=start_center - np.array([5.0, 5.0]), high=start_center + np.array([5.0, 5.0]))
             # goal = self.rd.uniform(low=goal_center - np.array([5.0, 5.0]), high=goal_center + np.array([5.0, 5.0]))
+            start = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
             goal = self.rd.uniform(low=start - np.array([4.0, 4.0]), high=start)
             iteration -= 1
             if self.check_start_and_goal(start, goal):

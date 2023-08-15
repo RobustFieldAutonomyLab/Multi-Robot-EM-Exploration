@@ -225,6 +225,7 @@ class Robot:
         self.start = None  # start position
         self.goal = None  # goal position
         self.reach_goal = False
+        self.signal_init = True
 
         self.init_theta = 0.0  # theta at initial position
         self.init_speed = 0.0  # speed at initial position
@@ -418,11 +419,14 @@ class Robot:
             for j, robot in enumerate(robots):
                 if robot is self:
                     continue
-                if robot.reach_goal:
+                if robot.reach_goal and not self.signal_init:
                     # This robot is in the deactivate state, and abscent from the current map
                     continue
-                if not self.check_detection(robot.x, robot.y, robot.detect_r):
+                if not self.check_detection(robot.x, robot.y, robot.detect_r) and not self.signal_init:
                     continue
+
+                if self.signal_init:
+                    self.signal_init = False
 
                 self.perception.observed_objs.append(j)
 
