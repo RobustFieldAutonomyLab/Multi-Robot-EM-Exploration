@@ -10,7 +10,8 @@ from nav.utils import get_symbol, point_to_local, local_to_world_values, point_t
 
 DEBUG_FRONTIER = False
 DEBUG_EM = True
-PLOT_VIRTUAL_MAP = True
+PLOT_VIRTUAL_MAP = False
+
 
 class Frontier:
     def __init__(self, position, origin=None, relative=None, nearest_frontier=False):
@@ -259,8 +260,8 @@ class FrontierGenerator:
     def compute_utility(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
                         robot_p, frontier_p, robot_id):
         # robot_position could be a tuple of two robots
-        # calculate the cost of the frontier for a specific robot
-
+        # calculate the cost of the frontier for a specific robot locally
+        virtual_map.reset_information()
         virtual_map.update_information(result, marginals)
         # TODO: figure out a way to normalize the uncertainty
         u_m = virtual_map.get_sum_uncertainty()
@@ -506,14 +507,14 @@ class ExpectationMaximizationTrajectory:
         graph, initial_estimate = self.generate_virtual_observation_graph(frontier_position=frontier_position,
                                                                           robot_id=robot_id)
         result, marginals = self.optimize_virtual_observation_graph(graph, initial_estimate)
-        result = local_to_world_values(result, origin)
+        result = local_to_world_values(result, origin, robot_id)
 
         # draw the optimized result
         if DEBUG_FRONTIER:
             scatters_x = []
             scatters_y = []
             for key in result.keys():
-                if key < ord('a'):
+                if key < gtsam.symbol('a', 0):
                     axis.scatter(result.atPoint2(key)[0], result.atPoint2(key)[1], c='r', marker='o')
                 else:
                     scatters_x.append(result.atPose2(key).x())

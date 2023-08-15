@@ -569,9 +569,9 @@ class VirtualMap:
                     sum_uncertainty += np.trace(self.data[i, j].covariance())
                 elif type == "D":
                     if np.linalg.det(self.data[i, j].information) < 1e-4:
-                        sum_uncertainty += 1000
-                        # print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information))
-                        # print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()))
+                        # sum_uncertainty += 1000
+                        print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information))
+                        print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()))
                     else :
                         sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
         return sum_uncertainty

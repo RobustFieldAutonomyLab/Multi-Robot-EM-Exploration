@@ -101,8 +101,8 @@ class ExpVisualizer:
         # Mode 1 (default): Display an episode
         self.fig = plt.figure(figsize=(32, 16))
         spec = self.fig.add_gridspec(5, 4)
-        # self.axis_graph = self.fig.add_subplot(spec[:, :2])
-        self.axis_grid = self.fig.add_subplot(spec[:, :2])
+        self.axis_graph = self.fig.add_subplot(spec[:, :2])
+        self.axis_grid = self.fig.add_subplot(spec[:, 2:4])
         if self.axis_graph is not None:
             self.plot_graph(self.axis_graph)
 
@@ -122,7 +122,7 @@ class ExpVisualizer:
                     plot_info_ellipse(np.array([virtual_landmark.x,
                                                 virtual_landmark.y]),
                                       virtual_landmark.information, self.axis_grid,
-                                      nstd=self.virtual_map.cell_size * 0.2)
+                                      nstd=self.virtual_map.cell_size * 0.08)
 
     def plot_graph(self, axis):
         # plot current velocity in the mapf

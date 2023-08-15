@@ -47,14 +47,25 @@ def point_to_world(x, y, origin):
     return [t_this[0, 0], t_this[1, 0]]
 
 
-def local_to_world_values(values: gtsam.Values, origin):
+def local_to_world_values(values: gtsam.Values, origin, robot_id=None):
     result = gtsam.Values()
     origin_pose = gtsam.Pose2(origin[0], origin[1], origin[2])
+    if robot_id is not None:
+        key_min = chr(robot_id + ord('a'))
+        key_max = chr(robot_id + ord('a') + 1)
+    else:
+        key_min = 0
+        key_max = -1
     for key in values.keys():
-        if key < ord('a'):
+        if key < gtsam.symbol('a', 0):
             landmark_position = values.atPoint2(key)
             if landmark_position is not None:
                 result.insert(key, origin_pose.transformFrom(landmark_position))
+        elif robot_id is not None:
+            if gtsam.symbol(key_min, 0) <= key < gtsam.symbol(key_max, 0):
+                robot_pose = values.atPose2(key)
+                if robot_pose is not None:
+                    result.insert(key, origin_pose.compose(robot_pose))
         else:
             robot_pose = values.atPose2(key)
             if robot_pose is not None:
