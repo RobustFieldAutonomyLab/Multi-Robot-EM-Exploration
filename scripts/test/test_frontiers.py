@@ -11,6 +11,8 @@ if 1:
     ev = nav.exp_max.ExpVisualizer(seed=123)
     ev.init_visualize()
     ev.initialize_apf_agents()
+    with open('log.txt', 'w') as file:
+        file.write('log:\n')
 
     # Do a ten step navigate
     n = 200

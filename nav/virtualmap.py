@@ -475,7 +475,8 @@ class VirtualMap:
             self.update_information_robot_batch(torch.tensor(np.array(poses_array)),
                                                 torch.tensor(np.array(information_matrix_array)))
         time1 = time.time()
-        print("time information: ", time1 - time0)
+        with open('log.txt', 'w') as file:
+            print("time information: ", time1 - time0, file=file)
 
     def update_information_robot_batch(self, poses, information_matrix):
         indices, points = self.find_neighbor_indices_batch(poses[:, :2])
@@ -572,8 +573,9 @@ class VirtualMap:
                 elif type_optima == "D":
                     if np.linalg.det(self.data[i, j].information) < 1e-4:
                         sum_uncertainty += 10000
-                        print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information))
-                        print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()))
+                        with open('log.txt', 'a') as file:
+                            print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information), file=file)
+                            print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()), file=file)
                     else:
                         sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
         return sum_uncertainty

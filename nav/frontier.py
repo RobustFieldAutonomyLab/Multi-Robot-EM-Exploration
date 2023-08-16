@@ -84,9 +84,9 @@ class FrontierGenerator:
         self.d_weight = 10
         self.t_weight = 50
 
-        self.boundary_ratio = 0.1  # Avoid frontiers near boundaries since our environment actually do not have boundary
-        self.boundary_value_j = int(self.boundary_ratio / self.cell_size * (self.max_x - self.min_x))
-        self.boundary_value_i = int(self.boundary_ratio / self.cell_size * (self.max_y - self.min_y))
+        self.boundary_dist = 5  # Avoid frontiers near boundaries since our environment actually do not have boundary
+        self.boundary_value_j = int(self.boundary_dist / self.cell_size)
+        self.boundary_value_i = int(self.boundary_dist / self.cell_size)
         if DEBUG_FRONTIER:
             print("boundary value: ", self.boundary_value_i, self.boundary_value_j)
 
@@ -269,7 +269,9 @@ class FrontierGenerator:
         # calculate the landmark visitation and new exploration case first
         u_d = compute_distance(frontier_p, robot_p)
         if DEBUG_EM:
-            print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d)
+            with open('log.txt', 'a') as file:
+                print("robot id, robot position, frontier position: ", robot_id, robot_p, frontier_p, file=file)
+                print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d, file=file)
         return u_m - u_t * self.t_weight + u_d * self.d_weight
 
     def compute_utility_task_allocation(self, frontier_p, robot_id):
