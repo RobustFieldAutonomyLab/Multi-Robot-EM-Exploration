@@ -409,10 +409,10 @@ class ExpVisualizer:
     def generate_frontier(self, idx):
         self.virtual_map.update(self.slam_result)  # , ev.landmark_slam.get_marginal())
         probability_map = self.virtual_map.get_probability_matrix()
+        latest_state = self.landmark_slam.get_latest_state(self.slam_origin)
         self.landmark_list = self.landmark_slam.get_landmark_list(self.slam_origin)
         explored_ratio, frontiers_generated = self.frontier_generator.generate(idx, probability_map,
-                                                                               self.landmark_slam.get_latest_state(
-                                                                                   self.slam_origin),
+                                                                               latest_state,
                                                                                self.landmark_list, self.axis_grid)
         if not frontiers_generated:
             assert "No more frontiers."
@@ -429,8 +429,8 @@ class ExpVisualizer:
         if not DEBUG_EXP_MAX and not DEBUG_FRONTIER and not PLOT_VIRTUAL_MAP:
             self.axis_grid.cla()
         self.axis_grid.scatter(goal[0], goal[1], marker="*", color="red", s=300, zorder=6)  # , alpha=0.5)
-        self.axis_grid.scatter(self.env.robots[idx].x,
-                               self.env.robots[idx].y,
+        self.axis_grid.scatter(latest_state[idx].x(),
+                               latest_state[idx].y(),
                                marker='*', s=300, c='black', zorder=5)
         if PLOT_VIRTUAL_MAP:
             for robot_id_this in range(self.env.num_cooperative):

@@ -475,7 +475,7 @@ class VirtualMap:
             self.update_information_robot_batch(torch.tensor(np.array(poses_array)),
                                                 torch.tensor(np.array(information_matrix_array)))
         time1 = time.time()
-        with open('log.txt', 'w') as file:
+        with open('log.txt', 'a') as file:
             print("time information: ", time1 - time0, file=file)
 
     def update_information_robot_batch(self, poses, information_matrix):
@@ -561,21 +561,23 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_sum_uncertainty(self, type_optima="D"):
+    def get_mean_uncertainty(self, type_optima="D"):
         sum_uncertainty = 0.0
+        cnt = 0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
-                # not yet observed
+                # not yet observed or explored
                 if self.data[i, j].probability > 0.49:
                     continue
+                cnt += 1
                 if type_optima == "A":
                     sum_uncertainty += np.trace(self.data[i, j].covariance())
                 elif type_optima == "D":
-                    if np.linalg.det(self.data[i, j].information) < 1e-4:
-                        sum_uncertainty += 10000
-                        with open('log.txt', 'a') as file:
+                    if np.linalg.det(self.data[i, j].information) < 1e-5:
+                        sum_uncertainty += 100000
+                        with open('log_covariance.txt', 'a') as file:
                             print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information), file=file)
                             print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()), file=file)
                     else:
                         sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
-        return sum_uncertainty
+        return sum_uncertainty / cnt

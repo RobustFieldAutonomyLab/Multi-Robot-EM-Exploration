@@ -81,8 +81,8 @@ class FrontierGenerator:
 
         self.virtual_move_length = 0.5
 
-        self.d_weight = 10
-        self.t_weight = 50
+        self.d_weight = 5
+        self.t_weight = 5
 
         self.boundary_dist = 8  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_dist / self.cell_size)
@@ -263,7 +263,7 @@ class FrontierGenerator:
         virtual_map.reset_information()
         virtual_map.update_information(result, marginals)
         # TODO: figure out a way to normalize the uncertainty
-        u_m = virtual_map.get_sum_uncertainty()
+        u_m = virtual_map.get_mean_uncertainty()
         u_t = self.compute_utility_task_allocation(frontier_p, robot_id)
         # calculate the landmark visitation and new exploration case first
         u_d = compute_distance(frontier_p, robot_p)

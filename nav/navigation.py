@@ -21,7 +21,7 @@ class LandmarkSLAM:
 
         self.idx = []
         # Noise models for the prior
-        self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.0001, 0.0001, 0.0001])
+        self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.001, 0.001, 0.001])
         # Noise models for the odometry
         self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
         # Noise models for the range bearing measurements
