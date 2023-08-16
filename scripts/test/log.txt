@@ -1,1 +1,4 @@
-time information:  0.3583259582519531
+time information:  0.021261215209960938
+robot id, robot position, frontier position:  2 (-8.72305, -82.6948, -2.7973)
+ [21.041907807663975, -101.17320607220572]
+uncertainty & task allocation & distance cost:  510.8305668164512 0.5656854249492379 35.0343325758663

@@ -84,7 +84,7 @@ class FrontierGenerator:
         self.d_weight = 10
         self.t_weight = 50
 
-        self.boundary_dist = 5  # Avoid frontiers near boundaries since our environment actually do not have boundary
+        self.boundary_dist = 8  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_dist / self.cell_size)
         self.boundary_value_i = int(self.boundary_dist / self.cell_size)
         if DEBUG_FRONTIER:
@@ -113,11 +113,10 @@ class FrontierGenerator:
         print("Present exploration ratio: ", explored_ratio)
 
         neighbor_sum = convolve(data.astype(int), self.neighbor_kernel, mode='constant', cval=0) - data.astype(int)
-
         data[0:self.boundary_value_i, :] = False  # avoid the boundary being selected
-        data[-self.boundary_value_i:-1, :] = False
+        data[-self.boundary_value_i:, :] = False
         data[:, 0:self.boundary_value_j] = False
-        data[:, -self.boundary_value_j:-1] = False
+        data[:, -self.boundary_value_j:] = False
 
         frontier_candidate_pool_data = data & (neighbor_sum < self.max_visited_neighbor)
         indices = np.argwhere(frontier_candidate_pool_data)
