@@ -7,6 +7,7 @@ import matplotlib.cm as cm
 from matplotlib.patches import Ellipse
 import copy
 from APF import APF_agent
+from RVO import RVO_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER, PLOT_VIRTUAL_MAP
@@ -67,6 +68,7 @@ class ExpVisualizer:
         self.dpi = dpi  # monitor DPI
 
         self.APF_agents = None
+        self.RVO_agents = None
 
         self.slam_origin = None
         self.landmark_slam = LandmarkSLAM()
@@ -255,6 +257,11 @@ class ExpVisualizer:
         for robot in self.env.robots:
             self.APF_agents.append(APF_agent(robot.a, robot.w))
 
+    def initialize_rvo_agents(self):
+        self.RVO_agents = []
+        for robot in self.env.robots:
+            self.RVO_agents.append(RVO_agent(robot.a, robot.w, robot.max_speed))
+
     def slam_one_step(self, observations, video=False, path=None):
         obs_list = self.generate_SLAM_observations(observations)
         self.landmark_slam.add_one_step(obs_list)
@@ -321,7 +328,7 @@ class ExpVisualizer:
                 self.slam_one_step(observations)
             self.cnt += 1
             actions = []
-            for i, apf in enumerate(self.APF_agents):
+            for i, apf in enumerate(self.RVO_agents):
                 robot = self.env.robots[i]
                 if robot.reach_goal:
                     with open('log.txt', 'a') as file:

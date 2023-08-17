@@ -470,7 +470,11 @@ class VirtualMap:
                 else:
                     pose = slam_result.atPose2(key)
                     poses_array.append(np.array([pose.x(), pose.y(), pose.theta()]))
-                    information_matrix_array.append(marginals.marginalInformation(key))
+                    try:
+                        marginal = marginals.marginalInformation(key)
+                    except RuntimeError:
+                        marginal = np.zeros((3, 3))
+                    information_matrix_array.append(marginal)
                     cnt += 1
             self.update_information_robot_batch(torch.tensor(np.array(poses_array)),
                                                 torch.tensor(np.array(information_matrix_array)))
