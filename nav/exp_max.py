@@ -7,7 +7,6 @@ import matplotlib.cm as cm
 from matplotlib.patches import Ellipse
 import copy
 from APF import APF_agent
-from RVO import RVO_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER, PLOT_VIRTUAL_MAP
@@ -53,10 +52,15 @@ class ExpVisualizer:
     def __init__(self,
                  seed: int = 0,
                  dpi: int = 96,  # Monitor DPI
+                 map_path: str = None,
                  ):
 
         self.env = marinenav_env.MarineNavEnv2(seed)
         self.env.reset()
+
+        if map_path is not None:
+            self.env.load_map(map_path)
+
         self.fig = None  # figure for visualization
         self.axis_graph = None  # sub figure for the map
         self.axis_grid = None  # sub figure for exploration
@@ -68,7 +72,6 @@ class ExpVisualizer:
         self.dpi = dpi  # monitor DPI
 
         self.APF_agents = None
-        self.RVO_agents = None
 
         self.slam_origin = None
         self.landmark_slam = LandmarkSLAM()
@@ -257,11 +260,6 @@ class ExpVisualizer:
         for robot in self.env.robots:
             self.APF_agents.append(APF_agent(robot.a, robot.w))
 
-    def initialize_rvo_agents(self):
-        self.RVO_agents = []
-        for robot in self.env.robots:
-            self.RVO_agents.append(RVO_agent(robot.a, robot.w, robot.max_speed))
-
     def slam_one_step(self, observations, video=False, path=None):
         obs_list = self.generate_SLAM_observations(observations)
         self.landmark_slam.add_one_step(obs_list)
@@ -328,15 +326,24 @@ class ExpVisualizer:
                 self.slam_one_step(observations)
             self.cnt += 1
             actions = []
-            for i, apf in enumerate(self.RVO_agents):
+            for i, apf in enumerate(self.APF_agents):
                 robot = self.env.robots[i]
                 if robot.reach_goal:
-                    with open('log.txt', 'a') as file:
-                        print("No: ", plot_cnt, file=file)
-                    # if reach a goal, design a new goal
-                    stop_signal, new_goal = self.generate_frontier(i)
-                    robot.reset_goal(new_goal)
-                    plot_signal = True
+                    if DEBUG_EM:
+                        with open('log.txt', 'a') as file:
+                            print("No: ", plot_cnt, file=file)
+                    if robot.waiting:
+                        id_that = robot.waiting_for_robot
+                        robot_that = self.env.robots[id_that]
+                        if robot_that.reach_goal:
+                            robot.reset_waiting()
+                            robot_that.reset_waiting()
+                    if not robot.waiting:
+                        # if reach a goal, design a new goal
+                        stop_signal, new_goal = self.generate_frontier(i)
+                        robot.reset_goal(new_goal)
+                        # if we find a rendezvous frontier, we notify the neighbor to wait for us
+                        plot_signal = True
                 actions.append(apf.act(observations[i][0]))
             # moving
             for i, action in enumerate(actions):
@@ -350,6 +357,7 @@ class ExpVisualizer:
                 plot_cnt += 1
 
         return True
+
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
@@ -406,7 +414,7 @@ class ExpVisualizer:
             # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
 
         for landmark_obs in self.landmark_list:
-            self.axis_grid.plot(landmark_obs[1], landmark_obs[2], 'x', color='black')
+            self.axis_grid.plot(landmark_obs[1], landmark_obs[2], 'x', color='black', zorder=10)
 
     def draw_present_position(self):
         pass
@@ -427,11 +435,16 @@ class ExpVisualizer:
         if explored_ratio > self.exploration_terminate_ratio:
             return True, None
 
-        goal = self.frontier_generator.choose(idx, self.landmark_slam.get_landmark_list(),
-                                              self.landmark_slam.get_isam(),
-                                              self.landmark_slam.get_last_key_state_pair(),
-                                              self.virtual_map,
-                                              self.axis_grid)
+        goal, robot_waiting = self.frontier_generator.choose(idx, self.landmark_slam.get_landmark_list(),
+                                                             self.landmark_slam.get_isam(),
+                                                             self.landmark_slam.get_last_key_state_pair(),
+                                                             self.virtual_map,
+                                                             self.axis_grid)
+        if robot_waiting is not None:
+            # let them wait for each other
+            self.env.robots[robot_waiting].reset_waiting(idx)
+            self.env.robots[idx].reset_waiting(robot_waiting)
+
         slam_poses = self.landmark_slam.get_last_key_state_pair(self.slam_origin)
         if not DEBUG_EXP_MAX and not DEBUG_FRONTIER and not PLOT_VIRTUAL_MAP:
             self.axis_grid.cla()
@@ -439,12 +452,6 @@ class ExpVisualizer:
         self.axis_grid.scatter(latest_state[idx].x(),
                                latest_state[idx].y(),
                                marker='*', s=300, c='black', zorder=5)
-        if PLOT_VIRTUAL_MAP:
-            for robot_id_this in range(self.env.num_cooperative):
-                if robot_id_this != idx:
-                    self.axis_grid.scatter(int(self.env.robots[robot_id_this].goal[0]),
-                                           int(self.env.robots[robot_id_this].goal[1]),
-                                           marker='o', s=300, c='yellow', zorder=5)
         goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
                                                                    self.env.robots[idx].y,
                                                                    self.env.robots[idx].theta])

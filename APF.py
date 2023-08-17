@@ -15,6 +15,8 @@ class APF_agent:
         self.w = w # available angular velocity (action 2)
 
     def act(self, observation):
+        if observation is None:
+            return 0
         self_state,static_states,dynamic_states = observation
         # print(self_state,static_states,dynamic_states,idx_array)
         velocity = np.array(self_state[2:4])

@@ -72,6 +72,13 @@ class MarineNavEnv2:
 
         self.set_boundary = False  # set boundary of environment
 
+    def load_map(self, path):
+        data = np.loadtxt(path, delimiter=' ')
+        self.num_obs = data.shape[0]
+        self.obstacles = []
+        for i in range(data.shape[0]):
+            self.obstacles.append(Obstacle(data[i][0], data[i][1], 4))
+
     def get_action_space_dimension(self):
         return self.robot.compute_actions_dimension()
 

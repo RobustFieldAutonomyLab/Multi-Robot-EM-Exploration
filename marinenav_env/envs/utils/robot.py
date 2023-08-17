@@ -211,8 +211,8 @@ class Robot:
         self.goal_dis = 1.0  # max distance to goal considered as reached
         self.max_speed = 1.0
         self.a = np.array([-0.4, 0.0, 0.4])  # linear accelerations (m/s^2)
-        self.w = np.zeros(12)  # angular velocities (rad/s)
-        for i in range(12):
+        self.w = np.zeros(24)  # angular velocities (rad/s)
+        for i in range(24):
             self.w[i] = -np.pi + i * np.pi / 6
         # self.w = np.array([-np.pi / 3, -np.pi / 4, -np.pi / 6, -np.pi / 12,
         #                    0.0, np.pi / 12, np.pi / 6, np.pi / 4, np.pi / 3])  # angular velocities (rad/s)
@@ -240,6 +240,17 @@ class Robot:
         # add noisy to landmark observation
         self.landmark_observation = RangeBearingMeasurement()
         self.robot_observation = RobotNeighborMeasurement()
+
+        self.waiting = False
+        self.waiting_for_robot = None
+
+    def reset_waiting(self, id = None):
+        if id is not None:
+            self.waiting = True
+            self.waiting_for_robot = id
+        else:
+            self.waiting = False
+            self.waiting_for_robot = None
 
     def compute_k(self):
         self.k = np.max(self.a) / self.max_speed

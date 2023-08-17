@@ -14,7 +14,7 @@ PLOT_VIRTUAL_MAP = False
 
 
 class Frontier:
-    def __init__(self, position, origin=None, relative=None, nearest_frontier=False):
+    def __init__(self, position, origin=None, relative=None, rendezvous=False, nearest_frontier=False):
         self.position = position
         # relative position in SLAM framework
         self.position_local = None
@@ -22,9 +22,10 @@ class Frontier:
         if origin is not None:
             self.position_local = point_to_local(position[0], position[1], origin)
 
-        # TODO: Implement case for rendezvous
         # case rendezvous
-        # self.connected_robot = []
+        self.rendezvous = rendezvous
+        self.waiting_punishment = None
+        self.connected_robot = []
 
         # case landmark
         self.relatives = []
@@ -37,19 +38,49 @@ class Frontier:
     def add_relative(self, relative):
         self.relatives.append(relative)
 
+    def add_waiting_punishment(self, robot_id, punishment):
+        self.connected_robot.append(robot_id)
+        self.waiting_punishment = punishment
+
     # def add_robot_connection(self, robot_id):
     #     self.connected_robot.append(robot_id)
 
 
-def compute_distance(frontier_p, robot_p):
-    if not isinstance(robot_p, tuple):
-        dist_cost = np.sqrt((robot_p.x() - frontier_p[0]) ** 2 + (robot_p.y() - frontier_p[1]) ** 2)
-    else:
-        # if a rendezvous point, calculate the mean cost for both robots
-        dist_cost = np.sqrt((robot_p[0].x() - frontier_p[0]) ** 2 + (robot_p[0].y() - frontier_p[1]) ** 2)
-        dist_cost += np.sqrt((robot_p[1].x() - frontier_p[0]) ** 2 + (robot_p[1].y() - frontier_p[1]) ** 2)
-        dist_cost /= 2
+def compute_distance(frontier, robot_p):
+    frontier_p = frontier.position_local
+    dist_cost = np.sqrt((robot_p.x() - frontier_p[0]) ** 2 + (robot_p.y() - frontier_p[1]) ** 2)
+    if frontier.rendezvous:
+        dist_cost += frontier.waiting_punishment
     return dist_cost
+
+
+def line_parameters(start_point, end_point):
+    x1, y1 = start_point
+    x2, y2 = end_point
+    A = y2 - y1
+    B = x1 - x2
+    C = (x2 * y1) - (x1 * y2)
+    return A, B, C
+
+
+def distance_to_line_segment(points, line_params, start_point, end_point):
+    A, B, C = line_params
+    distances = np.zeros(points.shape[0])
+    for i, point in enumerate(points):
+        x, y = point
+        dot_product = (x - start_point[0]) * (end_point[0] - start_point[0]) + \
+                      (y - start_point[1]) * (end_point[1] - start_point[1])
+        length_squared = (end_point[0] - start_point[0]) ** 2 + (end_point[1] - start_point[1]) ** 2
+
+        if dot_product < 0:
+            distance = np.sqrt((x - start_point[0]) ** 2 + (y - start_point[1]) ** 2)
+        elif dot_product > length_squared:
+            distance = np.sqrt((x - end_point[0]) ** 2 + (y - end_point[1]) ** 2)
+        else:
+            distance = np.abs(A * x + B * y + C) / np.sqrt(A ** 2 + B ** 2)
+        distances[i] = distance
+
+    return distances
 
 
 class FrontierGenerator:
@@ -69,6 +100,8 @@ class FrontierGenerator:
         self.min_dist_landmark = 10
         self.allocation_max_distance = 30
 
+        self.min_landmark_frontier_cnt = 1
+
         self.max_dist_robot_scaled = float(self.max_dist_robot) / float(self.cell_size)
         self.max_dist_landmark_scaled = float(self.min_dist_landmark) / float(self.cell_size)
 
@@ -79,10 +112,14 @@ class FrontierGenerator:
                                          [0, 1, 0]])
         self.max_visited_neighbor = 2
 
+        self.more_frontiers = False
+
         self.virtual_move_length = 0.5
 
-        self.d_weight = 5
-        self.t_weight = 5
+        self.d_weight = .2
+        self.t_weight = 1
+
+        self.u_t_speed = 10
 
         self.boundary_dist = 8  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_dist / self.cell_size)
@@ -94,14 +131,34 @@ class FrontierGenerator:
         self.goal_history = [[] for _ in range(self.num_robot)]
 
     def position_2_index(self, position):
-        index_j = int(math.floor((position[0] - self.min_x) / self.cell_size))
-        index_i = int(math.floor((position[1] - self.min_y) / self.cell_size))
-        return [index_i, index_j]
+        if not isinstance(position, np.ndarray):
+            index_j = int(math.floor((position[0] - self.min_x) / self.cell_size))
+            index_i = int(math.floor((position[1] - self.min_y) / self.cell_size))
+            return [index_i, index_j]
+        elif len(position.shape) == 1:
+            index_j = int(math.floor((position[0] - self.min_x) / self.cell_size))
+            index_i = int(math.floor((position[1] - self.min_y) / self.cell_size))
+            return [index_i, index_j]
+        else:
+            indices = np.zeros_like(position)
+            indices[:, 1] = np.floor((position[:, 0] - self.min_x) / self.cell_size)
+            indices[:, 0] = np.floor((position[:, 1] - self.min_y) / self.cell_size)
+            return indices
 
     def index_2_position(self, index):
-        x = index[1] * self.cell_size + self.cell_size * .5 + self.min_x
-        y = index[0] * self.cell_size + self.cell_size * .5 + self.min_y
-        return [x, y]
+        if not isinstance(index, np.ndarray):
+            x = index[1] * self.cell_size + self.cell_size * .5 + self.min_x
+            y = index[0] * self.cell_size + self.cell_size * .5 + self.min_y
+            return [x, y]
+        elif len(index.shape) == 1:
+            x = index[1] * self.cell_size + self.cell_size * .5 + self.min_x
+            y = index[0] * self.cell_size + self.cell_size * .5 + self.min_y
+            return [x, y]
+        else:
+            positions = np.zeros_like(index)
+            positions[:, 0] = index[:, 1] * self.cell_size + self.cell_size * .5 + self.min_x
+            positions[:, 1] = index[:, 0] * self.cell_size + self.cell_size * .5 + self.min_y
+            return positions
 
     def generate_potential_frontier_indices(self, probability_map):
         # generate frontier candidates
@@ -136,9 +193,10 @@ class FrontierGenerator:
         explored_ratio, indices = self.generate_potential_frontier_indices(probability_map)
         if PLOT_VIRTUAL_MAP:
             axis.cla()
-            for indice in indices:
-                point_index = np.array(self.index_2_position(indice))
-                rectangle = Rectangle(point_index - 2, 4, 4, linewidth=.5, edgecolor='tab:blue', facecolor='tab:blue', alpha = 0.3)
+            for index in indices:
+                point_index = np.array(self.index_2_position(index))
+                rectangle = Rectangle(point_index - 2, 4, 4, linewidth=.5, edgecolor='tab:blue', facecolor='tab:blue',
+                                      alpha=0.3)
                 axis.add_patch(rectangle)
         if indices == []:
             return explored_ratio, False
@@ -177,6 +235,8 @@ class FrontierGenerator:
                 self.frontiers[index_in_range[0]] = Frontier(position_this, origin=self.origin)
 
         # Type 2 frontier, re-visitation of existing landmarks
+        landmark_frontier_cnt = 0
+        # frontiers near landmarks
         for landmark in landmark_list:
             landmark_index = np.array(self.position_2_index([landmark[1], landmark[2]]))
             distances = np.linalg.norm(indices - landmark_index, axis=1)
@@ -188,7 +248,49 @@ class FrontierGenerator:
                     self.frontiers[index_this[0]].add_relative(landmark[0])
                 else:
                     position_this = self.index_2_position(indices[index_this[0]])
-                    self.frontiers[index_this[0]] = Frontier(position_this, origin=self.origin, relative=landmark[0])
+                    self.frontiers[index_this[0]] = Frontier(position_this, origin=self.origin,
+                                                             relative=landmark[0])
+                landmark_frontier_cnt += 1
+
+        if (self.more_frontiers or landmark_frontier_cnt == 0) and landmark_list != []:
+            # frontiers with landmarks on the way there
+            landmark_array = np.array(landmark_list)[:, 1:]
+            landmark_array_index = self.position_2_index(landmark_array)
+            distances = np.linalg.norm(landmark_array_index - state_index, axis=1)
+            num_landmarks_close = np.count_nonzero(distances < self.max_dist_robot_scaled)
+            for i, index_this in enumerate(indices):
+                line_params = line_parameters(state_index, index_this)
+                distances = distance_to_line_segment(landmark_array_index, line_params, state_index, index_this)
+                # if there are landmarks on the way there
+                if np.count_nonzero(distances < self.max_dist_landmark_scaled) > num_landmarks_close:
+                    landmark_min = np.argmin(distances)
+                    if i in self.frontiers:
+                        self.frontiers[i].add_relative(landmark_list[landmark_min][0])
+                    else:
+                        position_this = self.index_2_position(index_this)
+                        self.frontiers[i] = Frontier(position_this, origin=self.origin,
+                                                     relative=landmark_list[landmark_min][0])
+                landmark_frontier_cnt += 1
+
+        # Type 3 frontier,meet with other robots
+        if landmark_frontier_cnt < self.min_landmark_frontier_cnt:
+            for robot_index in range(self.num_robot):
+                if robot_index == robot_id:
+                    continue  # you don't need to meet yourself
+                if self.goal_history[robot_index] == []:
+                    continue  # the robot has no goal
+                goal_this = self.goal_history[robot_index][-1]
+                self.frontiers[len(indices_distances_within_list) + robot_index] = Frontier(goal_this,
+                                                                                            origin=self.origin,
+                                                                                            rendezvous=True)
+                # my time to the goal
+                dist_this = np.sqrt((state.x() - goal_this[0]) ** 2 + (state.y() - goal_this[1]) ** 2)
+                # neighbor's time to the goal
+                dist_that = np.sqrt((state_list[robot_index].x() - goal_this[0]) ** 2 +
+                                    (state_list[robot_index].y() - goal_this[1]) ** 2)
+                self.frontiers[len(indices_distances_within_list) + robot_index]. \
+                    add_waiting_punishment(robot_id=robot_index,
+                                           punishment=abs(dist_this - dist_that))
 
         if DEBUG_FRONTIER:
             for frontier in self.frontiers.values():
@@ -212,18 +314,21 @@ class FrontierGenerator:
             axis.scatter(scatters_x, scatters_y, c='y', marker='.')
         if PLOT_VIRTUAL_MAP:
             for frontier in self.frontiers.values():
-                if frontier.relatives == []:
+                if frontier.rendezvous:
                     axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='tab:purple', marker='o', s = 300, zorder = 5)
+                                 c='tab:yellow', marker='o', s=300, zorder=5)
+                elif frontier.relatives == []:
+                    axis.scatter(frontier.position[0], frontier.position[1],
+                                 c='tab:purple', marker='o', s=300, zorder=5)
                 else:
                     axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='tab:orange', marker='o', s = 300, zorder = 5)
+                                 c='tab:orange', marker='o', s=300, zorder=5)
 
     def choose(self, robot_id, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
         if self.nearest_frontier_flag or any(not sublist for sublist in self.goal_history):
             goal = self.find_frontier_nearest_neighbor()
             self.goal_history[robot_id].append(goal)
-            return goal
+            return goal, None
 
         newest_goal_local = []
         for goals in self.goal_history:
@@ -234,7 +339,7 @@ class FrontierGenerator:
                                                 landmarks=landmark_list_local,
                                                 isam=isam)
         self.draw_frontiers(axis)
-
+        robot_waiting = None
         cost_list = []
         for key, frontier in self.frontiers.items():
             # return the transformed virtual SLAM result for the calculation of the information of virtual map
@@ -245,44 +350,51 @@ class FrontierGenerator:
             # no need to reset, since the update_information will reset the virtual map
             cost_this = self.compute_utility(virtual_map, result, marginals,
                                              robot_state_idx_position_local[1][robot_id],
-                                             frontier.position_local, robot_id)
+                                             frontier, robot_id)
             cost_list.append((key, cost_this))
         if cost_list == []:
             # if no frontier is available, return the nearest frontier
             goal = self.find_frontier_nearest_neighbor()
         else:
             min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
+            if self.frontiers[min_cost[0]].rendezvous:
+                robot_waiting = self.frontiers[min_cost[0]].connected_robot[0]
             goal = self.frontiers[min_cost[0]].position
         self.goal_history[robot_id].append(goal)
-        return goal
+        if DEBUG_EM:
+            with open('log.txt', 'a') as file:
+                print("goal: ", goal, file=file)
+        return goal, robot_waiting
 
     def compute_utility(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
-                        robot_p, frontier_p, robot_id):
+                        robot_p, frontier, robot_id):
         # robot_position could be a tuple of two robots
         # calculate the cost of the frontier for a specific robot locally
         virtual_map.reset_information()
         virtual_map.update_information(result, marginals)
-        # TODO: figure out a way to normalize the uncertainty
         u_m = virtual_map.get_mean_uncertainty()
-        u_t = self.compute_utility_task_allocation(frontier_p, robot_id)
+        pts = generate_virtual_waypoints(point_to_world(robot_p.x(), robot_p.y(), self.origin),
+                                         frontier.position, speed=self.u_t_speed)
+        u_t = self.compute_utility_task_allocation(pts, robot_id)
         # calculate the landmark visitation and new exploration case first
-        u_d = compute_distance(frontier_p, robot_p)
+        u_d = compute_distance(frontier, robot_p)
         if DEBUG_EM:
             with open('log.txt', 'a') as file:
-                print("robot id, robot position, frontier position: ", robot_id, robot_p, frontier_p, file=file)
+                print("robot id, robot position, frontier position: ", robot_id, robot_p,
+                      frontier.position_local, file=file)
                 print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d, file=file)
-        return u_m - u_t * self.t_weight + u_d * self.d_weight
+        return u_m + u_t * self.t_weight + u_d * self.d_weight
 
-    def compute_utility_task_allocation(self, frontier_p, robot_id):
+    def compute_utility_task_allocation(self, frontier_w_list, robot_id):
         # local frame to global frame
-        frontier_w = point_to_world(frontier_p[0], frontier_p[1], self.origin)
-        u_t = 1
-        for i, goal_list in enumerate(self.goal_history):
-            if i == robot_id:
-                continue
-            for goal in goal_list:
-                dist = np.sqrt((goal[0] - frontier_w[0]) ** 2 + (goal[1] - frontier_w[1]) ** 2)
-                u_t -= self.compute_P_d(dist)
+        u_t = 0
+        for frontier_w in frontier_w_list:
+            for i, goal_list in enumerate(self.goal_history):
+                if i == robot_id:
+                    continue
+                for goal in goal_list:
+                    dist = np.sqrt((goal[0] - frontier_w[0]) ** 2 + (goal[1] - frontier_w[1]) ** 2)
+                    u_t += self.compute_P_d(dist)
         return u_t
 
     def compute_P_d(self, dist):
@@ -311,6 +423,30 @@ class FrontierGenerator:
 
 
 # Everything in SLAM frame in ExpectationMaximizationTrajectory
+def generate_virtual_waypoints(state_this, state_next, speed):
+    # return numpy.ndarray
+    # [[x0,y0,theta0], ..., [x1,y1,theta1]]
+    # state_this = self.robot_state_position[robot_id]
+    if isinstance(state_this, gtsam.Pose2):
+        state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
+    elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
+        state_0 = np.array([state_this[0], state_this[1], 0])
+    else:
+        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+    if isinstance(state_next, gtsam.Pose2):
+        state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
+    elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
+        state_1 = np.array([state_next[0], state_next[1], 0])
+    else:
+        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+
+    step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]) / speed)
+
+    waypoints = np.linspace(state_0, state_1, step)
+
+    return waypoints.tolist()
+
+
 class ExpectationMaximizationTrajectory:
     def __init__(self, radius, robot_state_idx_position_goal, landmarks, isam: tuple):
         # for odometry measurement
@@ -340,29 +476,6 @@ class ExpectationMaximizationTrajectory:
         self.robot_state_idx = robot_state_idx_position_goal[0]
         self.robot_state_position = robot_state_idx_position_goal[1]
         self.robot_state_goal = robot_state_idx_position_goal[2]
-
-    def generate_virtual_waypoints(self, robot_id, state_next):
-        # return numpy.ndarray
-        # [[x0,y0,theta0], ..., [x1,y1,theta1]]
-        state_this = self.robot_state_position[robot_id]
-        if isinstance(state_this, gtsam.Pose2):
-            state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
-        elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
-            state_0 = np.array([state_this[0], state_this[1], 0])
-        else:
-            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-        if isinstance(state_next, gtsam.Pose2):
-            state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
-        elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
-            state_1 = np.array([state_next[0], state_next[1], 0])
-        else:
-            raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-
-        step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]) / self.slam_speed)
-
-        waypoints = np.linspace(state_0, state_1, step)
-
-        return waypoints.tolist()
 
     def odometry_measurement_gtsam_format(self, measurement, robot_id=None, id0=None, id1=None):
         return gtsam.BetweenFactorPose2(get_symbol(robot_id, id0), get_symbol(robot_id, id1),
@@ -406,9 +519,12 @@ class ExpectationMaximizationTrajectory:
             initial_estimate.insert(get_symbol(robot_id, id_initial + i),
                                     gtsam.Pose2(waypoint[0], waypoint[1], waypoint[2]))
 
-            # calculate Euclidean distance between waypoint and landmarks
-            distances = np.linalg.norm(self.landmarks_position - np.array(waypoint[0:2]), axis=1)
-            landmark_indices = np.argwhere(distances < self.radius)
+            if self.landmarks_position != []:
+                # calculate Euclidean distance between waypoint and landmarks
+                distances = np.linalg.norm(self.landmarks_position - np.array(waypoint[0:2]), axis=1)
+                landmark_indices = np.argwhere(distances < self.radius)
+            else:
+                landmark_indices = []
             if landmark_indices != []:
                 # add landmark observation factor
                 for landmark_index in landmark_indices:
@@ -478,7 +594,9 @@ class ExpectationMaximizationTrajectory:
                 virtual_goal = frontier_position
             else:
                 virtual_goal = self.robot_state_goal[i]
-            virtual_waypoints[i] = self.generate_virtual_waypoints(i, virtual_goal)
+            virtual_waypoints[i] = generate_virtual_waypoints(self.robot_state_position[i],
+                                                              virtual_goal,
+                                                              speed=self.slam_speed)
             self.waypoints2landmark_observations(virtual_waypoints[i], i,
                                                  graph=graph,
                                                  initial_estimate=initial_estimate)
