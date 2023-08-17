@@ -100,7 +100,7 @@ class FrontierGenerator:
         self.min_dist_landmark = 10
         self.allocation_max_distance = 30
 
-        self.min_landmark_frontier_cnt = 1
+        self.min_landmark_frontier_cnt = 5
 
         self.max_dist_robot_scaled = float(self.max_dist_robot) / float(self.cell_size)
         self.max_dist_landmark_scaled = float(self.min_dist_landmark) / float(self.cell_size)
@@ -116,8 +116,8 @@ class FrontierGenerator:
 
         self.virtual_move_length = 0.5
 
-        self.d_weight = .2
-        self.t_weight = 1
+        self.d_weight = 5
+        self.t_weight = 100
 
         self.u_t_speed = 10
 
@@ -252,7 +252,7 @@ class FrontierGenerator:
                                                              relative=landmark[0])
                 landmark_frontier_cnt += 1
 
-        if (self.more_frontiers or landmark_frontier_cnt == 0) and landmark_list != []:
+        if (self.more_frontiers or landmark_frontier_cnt < self.min_landmark_frontier_cnt) and landmark_list != []:
             # frontiers with landmarks on the way there
             landmark_array = np.array(landmark_list)[:, 1:]
             landmark_array_index = self.position_2_index(landmark_array)
@@ -341,6 +341,7 @@ class FrontierGenerator:
         self.draw_frontiers(axis)
         robot_waiting = None
         cost_list = []
+        U_m_0 = virtual_map.get_sum_uncertainty()
         for key, frontier in self.frontiers.items():
             # return the transformed virtual SLAM result for the calculation of the information of virtual map
             result, marginals = emt.do(robot_id=robot_id,
@@ -350,7 +351,7 @@ class FrontierGenerator:
             # no need to reset, since the update_information will reset the virtual map
             cost_this = self.compute_utility(virtual_map, result, marginals,
                                              robot_state_idx_position_local[1][robot_id],
-                                             frontier, robot_id)
+                                             frontier, robot_id, U_m_0)
             cost_list.append((key, cost_this))
         if cost_list == []:
             # if no frontier is available, return the nearest frontier
@@ -367,21 +368,23 @@ class FrontierGenerator:
         return goal, robot_waiting
 
     def compute_utility(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
-                        robot_p, frontier, robot_id):
+                        robot_p, frontier, robot_id, U_m_0):
         # robot_position could be a tuple of two robots
         # calculate the cost of the frontier for a specific robot locally
         virtual_map.reset_information()
         virtual_map.update_information(result, marginals)
-        u_m = virtual_map.get_mean_uncertainty()
+        u_m = virtual_map.get_sum_uncertainty() - U_m_0
         pts = generate_virtual_waypoints(point_to_world(robot_p.x(), robot_p.y(), self.origin),
                                          frontier.position, speed=self.u_t_speed)
+        if pts == []:
+            pts = [frontier.position]
         u_t = self.compute_utility_task_allocation(pts, robot_id)
         # calculate the landmark visitation and new exploration case first
         u_d = compute_distance(frontier, robot_p)
         if DEBUG_EM:
             with open('log.txt', 'a') as file:
                 print("robot id, robot position, frontier position: ", robot_id, robot_p,
-                      frontier.position_local, file=file)
+                      frontier.position_local, frontier.position, file=file)
                 print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d, file=file)
         return u_m + u_t * self.t_weight + u_d * self.d_weight
 
@@ -441,7 +444,6 @@ def generate_virtual_waypoints(state_this, state_next, speed):
         raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
 
     step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]) / speed)
-
     waypoints = np.linspace(state_0, state_1, step)
 
     return waypoints.tolist()

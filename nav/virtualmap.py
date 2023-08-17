@@ -566,15 +566,15 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_mean_uncertainty(self, type_optima="D"):
+    def get_sum_uncertainty(self, type_optima="D"):
         sum_uncertainty = 0.0
-        cnt = 0
+        # cnt = 0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
                 # not yet observed or explored
                 # if self.data[i, j].probability > 0.49:
                 #     continue
-                cnt += 1
+                # cnt += 1
                 if type_optima == "A":
                     sum_uncertainty += np.trace(self.data[i, j].covariance())
                 elif type_optima == "D":
@@ -586,4 +586,4 @@ class VirtualMap:
                                 print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()), file=file)
                     else:
                         sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
-        return sum_uncertainty / cnt
+        return sum_uncertainty

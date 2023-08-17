@@ -422,7 +422,7 @@ class ExpVisualizer:
             self.axis_graph.scatter(robot.x, robot.y, marker="*", color="yellow", s=500, zorder=5)
 
     def generate_frontier(self, idx):
-        self.virtual_map.update(self.slam_result)  # , ev.landmark_slam.get_marginal())
+        self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
         probability_map = self.virtual_map.get_probability_matrix()
         latest_state = self.landmark_slam.get_latest_state(self.slam_origin)
         self.landmark_list = self.landmark_slam.get_landmark_list(self.slam_origin)
