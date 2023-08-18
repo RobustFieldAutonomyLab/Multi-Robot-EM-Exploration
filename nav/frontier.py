@@ -120,6 +120,7 @@ class FrontierGenerator:
         self.t_weight = 100
 
         self.u_t_speed = 10
+        self.num_history_goal = 5
 
         self.boundary_dist = 8  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_dist / self.cell_size)
@@ -380,11 +381,15 @@ class FrontierGenerator:
         virtual_map.reset_information()
         virtual_map.update_information(result, marginals)
         u_m = virtual_map.get_sum_uncertainty() - U_m_0
-        pts = generate_virtual_waypoints(point_to_world(robot_p.x(), robot_p.y(), self.origin),
-                                         frontier.position, speed=self.u_t_speed)
-        if pts == []:
-            pts = [frontier.position]
-        u_t = self.compute_utility_task_allocation(pts, robot_id)
+        num_history_goal = min(self.num_history_goal, len(self.goal_history[robot_id]))
+        goals_task_allocation = self.goal_history[robot_id][-num_history_goal:]
+        goals_task_allocation.append(point_to_world(robot_p.x(), robot_p.y(), self.origin))
+        u_t = 0
+        for goal in goals_task_allocation:
+            pts = generate_virtual_waypoints(goal, frontier.position, speed=self.u_t_speed)
+            if pts == []:
+                pts = [frontier.position]
+            u_t += self.compute_utility_task_allocation(pts, robot_id)
         # calculate the landmark visitation and new exploration case first
         u_d = compute_distance(frontier, robot_p)
         if DEBUG_EM:
