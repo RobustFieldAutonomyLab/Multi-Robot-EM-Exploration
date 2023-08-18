@@ -8,9 +8,8 @@ from tqdm import tqdm
 
 if 1:
     # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
-    ev = nav.exp_max.ExpVisualizer(seed=123)#, map_path = "map_sparse.txt")
+    ev = nav.exp_max.ExpVisualizer(seed=123, map_path = "map_sparse.txt")
     ev.init_visualize()
-    ev.initialize_apf_agents()
     with open('log.txt', 'w') as file:
         file.write('log:\n')
     with open('log_covariance.txt', 'w') as file:

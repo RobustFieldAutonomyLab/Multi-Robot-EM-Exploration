@@ -80,3 +80,10 @@ def pose_vector_to_matrix(x, y, theta):
     t_rw = np.matrix([[x], [y]])
 
     return R_rw, t_rw
+
+
+def from_cos_sin(c, s):
+    theta = np.arccos(c)
+    if s < 0:
+        theta = 2 * np.pi - theta
+    return theta

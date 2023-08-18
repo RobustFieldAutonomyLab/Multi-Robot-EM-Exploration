@@ -96,7 +96,7 @@ class FrontierGenerator:
 
         self.nearest_frontier_flag = parameters["nearest_frontier_flag"]
 
-        self.max_dist_robot = 20
+        self.max_dist_robot = 30
         self.min_dist_landmark = 10
         self.allocation_max_distance = 30
 
@@ -220,8 +220,6 @@ class FrontierGenerator:
         # Type 1 frontier, the nearest frontier to current position
         index_this = np.argmin(distances)
         position_this = self.index_2_position(indices[index_this])
-        if DEBUG_FRONTIER:
-            print("index: ", index_this, position_this)
 
         if index_this in self.frontiers:
             self.frontiers[index_this].nearest_frontier = True
@@ -229,6 +227,10 @@ class FrontierGenerator:
             self.frontiers[index_this] = Frontier(position_this,
                                                   origin=self.origin,
                                                   nearest_frontier=True)
+        if DEBUG_FRONTIER:
+            print("index: ", index_this, position_this)
+            print("distances: ", distances)
+
         for index_in_range in indices_distances_within_list:
             if index_in_range[0] not in self.frontiers:
                 position_this = self.index_2_position(indices[index_in_range[0]])
@@ -280,15 +282,19 @@ class FrontierGenerator:
                 if self.goal_history[robot_index] == []:
                     continue  # the robot has no goal
                 goal_this = self.goal_history[robot_index][-1]
-                self.frontiers[len(indices_distances_within_list) + robot_index] = Frontier(goal_this,
-                                                                                            origin=self.origin,
-                                                                                            rendezvous=True)
                 # my time to the goal
                 dist_this = np.sqrt((state.x() - goal_this[0]) ** 2 + (state.y() - goal_this[1]) ** 2)
+                if dist_this < self.max_dist_robot_scaled:
+                    continue  # the robot is too close to the goal
+                self.frontiers[len(indices) + robot_index] = Frontier(goal_this,
+                                                                      origin=self.origin,
+                                                                      rendezvous=True)
+
+
                 # neighbor's time to the goal
                 dist_that = np.sqrt((state_list[robot_index].x() - goal_this[0]) ** 2 +
                                     (state_list[robot_index].y() - goal_this[1]) ** 2)
-                self.frontiers[len(indices_distances_within_list) + robot_index]. \
+                self.frontiers[len(indices) + robot_index]. \
                     add_waiting_punishment(robot_id=robot_index,
                                            punishment=abs(dist_this - dist_that))
 

@@ -29,7 +29,7 @@ class GridClickTool:
             for i in range(self.rows):
                 for j in range(self.cols):
                     if self.grid[i][j] == 1:
-                        file.write(str(i) + ', ' + str(j) + '\n')
+                        file.write(str(i*4) + ', ' + str(j*4) + '\n')
 
     def show(self):
         plt.show()

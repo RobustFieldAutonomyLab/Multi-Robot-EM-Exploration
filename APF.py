@@ -5,7 +5,7 @@ class APF_agent:
 
     def __init__(self, a, w):
         self.k_att = 50.0 # attractive force constant
-        self.k_rep = 50.0 # repulsive force constant
+        self.k_rep = 500.0 # repulsive force constant
         self.m = 500 # robot weight (kg)
         self.d0 = 10.0 # obstacle distance threshold (m)
         self.n = 2 # power constant of repulsive force

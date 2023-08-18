@@ -3,12 +3,15 @@ import numpy as np
 import gtsam
 from scipy.spatial.distance import cdist
 from scipy.linalg import cho_factor, cho_solve
+from nav.utils import from_cos_sin
 import copy
 import time
 import torch
 
 from marinenav_env.envs.utils.robot import RangeBearingMeasurement
+
 DEBUG = False
+
 
 def prob_to_logodds(p):
     return math.log(p / (1.0 - p))
@@ -240,13 +243,6 @@ def unrotate_batch(theta_batch, p_batch):
     H2 = torch.stack([torch.stack([c, s], dim=1), torch.stack([-s, c], dim=1)], dim=1)
 
     return q, H1, H2
-
-
-def from_cos_sin(c, s):
-    theta = np.arccos(c)
-    if s < 0:
-        theta = 2 * np.pi - theta
-    return theta
 
 
 def from_cos_sin_batch(c_batch, s_batch):
@@ -582,8 +578,10 @@ class VirtualMap:
                         sum_uncertainty += 1000000
                         if DEBUG:
                             with open('log_covariance.txt', 'a') as file:
-                                print("information:", self.data[i, j].information, np.linalg.det(self.data[i, j].information), file=file)
-                                print("covariance:", self.data[i, j].covariance(), np.linalg.det(self.data[i, j].covariance()), file=file)
+                                print("information:", self.data[i, j].information,
+                                      np.linalg.det(self.data[i, j].information), file=file)
+                                print("covariance:", self.data[i, j].covariance(),
+                                      np.linalg.det(self.data[i, j].covariance()), file=file)
                     else:
                         sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
         return sum_uncertainty

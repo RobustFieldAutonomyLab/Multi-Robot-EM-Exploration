@@ -52,7 +52,7 @@ class ExpVisualizer:
     def __init__(self,
                  seed: int = 0,
                  dpi: int = 96,  # Monitor DPI
-                 map_path: str = None,
+                 map_path: str = None
                  ):
 
         self.env = marinenav_env.MarineNavEnv2(seed)
@@ -72,6 +72,8 @@ class ExpVisualizer:
         self.dpi = dpi  # monitor DPI
 
         self.APF_agents = None
+
+        self.initialize_apf_agents()
 
         self.slam_origin = None
         self.landmark_slam = LandmarkSLAM()
@@ -357,7 +359,6 @@ class ExpVisualizer:
                 plot_cnt += 1
 
         return True
-
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
