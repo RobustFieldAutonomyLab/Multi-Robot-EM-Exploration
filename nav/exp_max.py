@@ -52,7 +52,8 @@ class ExpVisualizer:
     def __init__(self,
                  seed: int = 0,
                  dpi: int = 96,  # Monitor DPI
-                 map_path: str = None
+                 map_path: str = None,
+                 method: str = "NF"
                  ):
 
         self.env = marinenav_env.MarineNavEnv2(seed)
@@ -92,7 +93,6 @@ class ExpVisualizer:
         param_frontier["origin"] = [self.env.robots[0].start[0],
                                     self.env.robots[0].start[1],
                                     self.env.robots[0].init_theta]
-        param_frontier["nearest_frontier_flag"] = False
         self.frontier_generator = FrontierGenerator(param_frontier)
 
         self.slam_result = gtsam.Values()
@@ -101,6 +101,8 @@ class ExpVisualizer:
         self.max_exploration_ratio = 0.8
 
         self.cnt = 0
+
+        self.method = method
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -435,12 +437,21 @@ class ExpVisualizer:
 
         if explored_ratio > self.exploration_terminate_ratio:
             return True, None
+        if self.method == "EM":
+            goal, robot_waiting = self.frontier_generator.choose_EM(idx, self.landmark_slam.get_landmark_list(),
+                                                                    self.landmark_slam.get_isam(),
+                                                                    self.landmark_slam.get_last_key_state_pair(),
+                                                                    self.virtual_map,
+                                                                    self.axis_grid)
+        elif self.method == "NF":
+            goal, robot_waiting = self.frontier_generator.choose_NF(idx)
+        elif self.method == "CE":
+            goal, robot_waiting = self.frontier_generator.choose_CE(idx, self.landmark_slam.get_last_key_state_pair())
+        elif self.method == "BSP":
+            goal, robot_waiting = self.frontier_generator.choose_BSP(idx, self.landmark_slam.get_landmark_list(),
+                                                                     self.landmark_slam.get_last_key_state_pair(),
+                                                                     self.axis_grid)
 
-        goal, robot_waiting = self.frontier_generator.choose(idx, self.landmark_slam.get_landmark_list(),
-                                                             self.landmark_slam.get_isam(),
-                                                             self.landmark_slam.get_last_key_state_pair(),
-                                                             self.virtual_map,
-                                                             self.axis_grid)
         if robot_waiting is not None:
             # let them wait for each other
             self.env.robots[robot_waiting].reset_waiting(idx)

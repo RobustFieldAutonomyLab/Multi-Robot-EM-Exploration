@@ -87,3 +87,26 @@ def from_cos_sin(c, s):
     if s < 0:
         theta = 2 * np.pi - theta
     return theta
+
+
+def generate_virtual_waypoints(state_this, state_next, speed):
+    # return numpy.ndarray
+    # [[x0,y0,theta0], ..., [x1,y1,theta1]]
+    # state_this = self.robot_state_position[robot_id]
+    if isinstance(state_this, gtsam.Pose2):
+        state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
+    elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
+        state_0 = np.array([state_this[0], state_this[1], 0])
+    else:
+        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+    if isinstance(state_next, gtsam.Pose2):
+        state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
+    elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
+        state_1 = np.array([state_next[0], state_next[1], 0])
+    else:
+        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
+
+    step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]) / speed)
+    waypoints = np.linspace(state_0, state_1, step)
+
+    return waypoints.tolist()

@@ -140,7 +140,7 @@ class OccupancyMap:
 
     def update(self, slam_result: gtsam.Values):
         for key in slam_result.keys():
-            if key < ord('a'):  # landmark case
+            if key < gtsam.symbol('a', 0):  # landmark case
                 self.update_landmark(slam_result.atPoint2(key))
             else:  # robot case
                 pose = slam_result.atPose2(key)
@@ -450,7 +450,7 @@ class VirtualMap:
         # if len(slam_result.keys()) * self.cell_size < 100 or not self.use_torch:
         if not self.use_torch:
             for key in slam_result.keys():
-                if key < ord('a'):  # landmark case
+                if key < gtsam.symbol('a', 0):  # landmark case
                     pass
                 else:  # robot case
                     pose = slam_result.atPose2(key)
@@ -461,7 +461,7 @@ class VirtualMap:
             information_matrix_array = []
             cnt = 0
             for key in slam_result.keys():
-                if key < ord('a'):  # landmark case
+                if key < gtsam.symbol('a', 0):  # landmark case
                     pass
                 else:
                     pose = slam_result.atPose2(key)

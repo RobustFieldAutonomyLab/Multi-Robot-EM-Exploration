@@ -1,18 +1,14 @@
 from PIL import Image
 import os
 
-a = ord('a')
-b = ord('b')
-print(a, b)
-
-if 0:
-    folder_path = 'test/tmp/'  # Path to the folder containing the images
+if 1:
+    folder_path = 'test/tmp1/'  # Path to the folder containing the images
     image_extensions = '.png'  # List of valid image file extensions
 
     image_names = [
     ]
 
-    for i in range(0, 59):
+    for i in range(0, 124):
         image_names.append('test_virtual_map' + str(i) + image_extensions)
 
     images = []
@@ -20,7 +16,7 @@ if 0:
         image_path = os.path.join(folder_path, image_name)
         image = Image.open(image_path)
         w, h = image.size
-        image = image.resize((int(w / 2), int(h / 2)), Image.ANTIALIAS)
+        image = image.resize((int(w / 4), int(h / 4)), Image.ANTIALIAS)
         images.append(image)
 
     output_file = "output.gif"  # Output file name

@@ -6,7 +6,8 @@ from scipy.ndimage import convolve
 from matplotlib.patches import Rectangle
 
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
-from nav.utils import get_symbol, point_to_local, local_to_world_values, point_to_world
+from nav.utils import get_symbol, point_to_local, local_to_world_values, point_to_world, generate_virtual_waypoints
+from nav.BSP import BeliefSpacePlanning, DEBUG_BSP
 
 DEBUG_FRONTIER = False
 DEBUG_EM = True
@@ -93,8 +94,6 @@ class FrontierGenerator:
         self.num_robot = parameters["num_robot"]
         self.radius = parameters["radius"]
         self.origin = parameters["origin"]
-
-        self.nearest_frontier_flag = parameters["nearest_frontier_flag"]
 
         self.max_dist_robot = 30
         self.min_dist_landmark = 10
@@ -291,7 +290,6 @@ class FrontierGenerator:
                                                                       origin=self.origin,
                                                                       rendezvous=True)
 
-
                 # neighbor's time to the goal
                 dist_that = np.sqrt((state_list[robot_index].x() - goal_this[0]) ** 2 +
                                     (state_list[robot_index].y() - goal_this[1]) ** 2)
@@ -331,8 +329,74 @@ class FrontierGenerator:
                     axis.scatter(frontier.position[0], frontier.position[1],
                                  c='tab:orange', marker='o', s=300, zorder=5)
 
-    def choose(self, robot_id, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
-        if self.nearest_frontier_flag or any(not sublist for sublist in self.goal_history):
+    def choose_NF(self, robot_id):
+        goal = self.find_frontier_nearest_neighbor()
+        self.goal_history[robot_id].append(goal)
+        return goal, None
+
+    def choose_CE(self, robot_id, robot_state_idx_position_local):
+        robot_p = robot_state_idx_position_local[1][robot_id]
+
+        num_history_goal = min(self.num_history_goal, len(self.goal_history[robot_id]))
+        goals_task_allocation = self.goal_history[robot_id][-num_history_goal:]
+        goals_task_allocation.append(point_to_world(robot_p.x(), robot_p.y(), self.origin))
+        cost_list = []
+        for key, frontier in self.frontiers.items():
+            u_t = 0
+            for goal in goals_task_allocation:
+                pts = generate_virtual_waypoints(goal, frontier.position, speed=self.u_t_speed)
+                if pts == []:
+                    pts = [frontier.position]
+                u_t += self.compute_utility_task_allocation(pts, robot_id)
+            # calculate the landmark visitation and new exploration case first
+            u_d = compute_distance(frontier, robot_p)
+            cost_list.append((key, self.t_weight * u_t + self.d_weight * u_d))
+        if cost_list == []:
+            # if no frontier is available, return the nearest frontier
+            goal = self.find_frontier_nearest_neighbor()
+        else:
+            min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
+            goal = self.frontiers[min_cost[0]].position
+        return goal, None
+
+    def choose_BSP(self, robot_id, landmark_list_local, robot_state_idx_position_local, axis=None):
+        if any(not sublist for sublist in self.goal_history):
+            goal = self.find_frontier_nearest_neighbor()
+            self.goal_history[robot_id].append(goal)
+            return goal, None
+        newest_goal_local = []
+        for goals in self.goal_history:
+            newest_goal_local.append(point_to_local(goals[-1][0], goals[-1][1], self.origin))
+        robot_state_idx_position_goal_local = robot_state_idx_position_local + (newest_goal_local,)
+        bsp = BeliefSpacePlanning(radius=self.radius,
+                                  robot_state_idx_position_goal=robot_state_idx_position_goal_local,
+                                  landmarks=landmark_list_local)
+        robot_waiting = None
+        cost_list = []
+        for key, frontier in self.frontiers.items():
+            result, marginals = bsp.do(robot_id=robot_id,
+                                       frontier_position=frontier.position_local,
+                                       origin=self.origin,
+                                       axis = axis)
+            cost_this = self.compute_utility_BSP(result, marginals,
+                                                 robot_state_idx_position_local[1][robot_id],
+                                                 frontier, robot_id)
+            cost_list.append((key, cost_this))
+        if cost_list == []:
+            goal = self.find_frontier_nearest_neighbor()
+        else:
+            min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
+            if self.frontiers[min_cost[0]].rendezvous:
+                robot_waiting = self.frontiers[min_cost[0]].connected_robot[0]
+            goal = self.frontiers[min_cost[0]].position
+        self.goal_history[robot_id].append(goal)
+        if DEBUG_BSP:
+            with open('log.txt', 'a') as file:
+                print("goal: ", goal, file=file)
+        return goal, robot_waiting
+
+    def choose_EM(self, robot_id, landmark_list_local, isam, robot_state_idx_position_local, virtual_map, axis=None):
+        if any(not sublist for sublist in self.goal_history):
             goal = self.find_frontier_nearest_neighbor()
             self.goal_history[robot_id].append(goal)
             return goal, None
@@ -356,9 +420,9 @@ class FrontierGenerator:
                                        origin=self.origin,
                                        axis=axis)
             # no need to reset, since the update_information will reset the virtual map
-            cost_this = self.compute_utility(virtual_map, result, marginals,
-                                             robot_state_idx_position_local[1][robot_id],
-                                             frontier, robot_id, U_m_0)
+            cost_this = self.compute_utility_EM(virtual_map, result, marginals,
+                                                robot_state_idx_position_local[1][robot_id],
+                                                frontier, robot_id, U_m_0)
             cost_list.append((key, cost_this))
         if cost_list == []:
             # if no frontier is available, return the nearest frontier
@@ -374,8 +438,27 @@ class FrontierGenerator:
                 print("goal: ", goal, file=file)
         return goal, robot_waiting
 
-    def compute_utility(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
-                        robot_p, frontier, robot_id, U_m_0):
+    def compute_utility_BSP(self, result: gtsam.Values, marginals: gtsam.Marginals,
+                            robot_p, frontier, robot_id):
+        u_d = compute_distance(frontier, robot_p)
+        u_m = 0
+        for key in result.keys():
+            if key < gtsam.symbol('a', 0):
+                pass
+            else:
+                pose = result.atPose2(key)
+                try:
+                    marginal = marginals.marginalInformation(key)
+                except RuntimeError:
+                    marginal = np.zeros((3, 3))
+                u_m += np.sqrt(marginals.marginalCovariance(key).trace())
+        if DEBUG_BSP:
+            with open('log.txt', 'a') as file:
+                print("u_m, u_d: ", u_m, u_d, file=file)
+        return u_m + self.d_weight * u_d
+
+    def compute_utility_EM(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
+                           robot_p, frontier, robot_id, U_m_0):
         # robot_position could be a tuple of two robots
         # calculate the cost of the frontier for a specific robot locally
         virtual_map.reset_information()
@@ -437,28 +520,6 @@ class FrontierGenerator:
 
 
 # Everything in SLAM frame in ExpectationMaximizationTrajectory
-def generate_virtual_waypoints(state_this, state_next, speed):
-    # return numpy.ndarray
-    # [[x0,y0,theta0], ..., [x1,y1,theta1]]
-    # state_this = self.robot_state_position[robot_id]
-    if isinstance(state_this, gtsam.Pose2):
-        state_0 = np.array([state_this.x(), state_this.y(), state_this.theta()])
-    elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
-        state_0 = np.array([state_this[0], state_this[1], 0])
-    else:
-        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-    if isinstance(state_next, gtsam.Pose2):
-        state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])
-    elif isinstance(state_next, np.ndarray) or isinstance(state_next, list):
-        state_1 = np.array([state_next[0], state_next[1], 0])
-    else:
-        raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
-
-    step = int(np.linalg.norm(state_1[0:2] - state_0[0:2]) / speed)
-    waypoints = np.linspace(state_0, state_1, step)
-
-    return waypoints.tolist()
-
 
 class ExpectationMaximizationTrajectory:
     def __init__(self, radius, robot_state_idx_position_goal, landmarks, isam: tuple):
