@@ -564,7 +564,6 @@ class VirtualMap:
 
     def get_sum_uncertainty(self, type_optima="D"):
         sum_uncertainty = 0.0
-        # cnt = 0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
                 # not yet observed or explored
@@ -572,10 +571,12 @@ class VirtualMap:
                 #     continue
                 # cnt += 1
                 if type_optima == "A":
-                    sum_uncertainty += np.trace(self.data[i, j].covariance())
+                    sum_uncertainty += np.sqrt(np.trace(self.data[i, j].covariance()))
                 elif type_optima == "D":
-                    if np.linalg.det(self.data[i, j].information) < 1e-6:
-                        sum_uncertainty += 1000000
+                    if np.linalg.det(self.data[i, j].information) == 0:
+                        continue
+                    elif np.linalg.det(self.data[i, j].information) < 1e-6:
+                        sum_uncertainty += 1000
                         if DEBUG:
                             with open('log_covariance.txt', 'a') as file:
                                 print("information:", self.data[i, j].information,
@@ -583,5 +584,5 @@ class VirtualMap:
                                 print("covariance:", self.data[i, j].covariance(),
                                       np.linalg.det(self.data[i, j].covariance()), file=file)
                     else:
-                        sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
+                        sum_uncertainty += np.sqrt(np.linalg.det(self.data[i, j].covariance()))
         return sum_uncertainty

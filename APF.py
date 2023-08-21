@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+from nav.utils import from_cos_sin
 
 class APF_agent:
 
@@ -21,6 +22,14 @@ class APF_agent:
         # print(self_state,static_states,dynamic_states,idx_array)
         velocity = np.array(self_state[2:4])
         goal = np.array(self_state[:2])
+        dd = np.sqrt(goal[0] **2 + goal[1] ** 2)
+        if abs(from_cos_sin(goal[0]/dd, goal[1]/dd)) < 5/180 * np.pi:
+            w_idx = np.argmin(np.pi)
+            a = copy.deepcopy(self.a)
+            a[a<=0.0] = -np.inf
+            a_idx = np.argmin(np.abs(a))
+            return a_idx * len(self.w) + w_idx
+
         # sonar_points = observation[4:]
 
         # compute attractive force
