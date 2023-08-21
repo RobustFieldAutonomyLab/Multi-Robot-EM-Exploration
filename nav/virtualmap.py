@@ -103,6 +103,8 @@ class OccupancyMap:
         self.data = np.full((self.num_rows, self.num_cols), LOGODDS_UNKNOWN)
 
     def update_grid(self, col: int, row: int, free: bool):
+        if col < 0 or col >= self.num_cols or row < 0 or row >= self.num_rows:
+            return
         logodds = get_logodds(free) + self.data[row, col]
         logodds = min(MAX_LOGODDS, max(logodds, MIN_LOGODDS))
         self.data[row, col] = logodds
@@ -443,16 +445,26 @@ class VirtualMap:
         occmap.update_landmark(point)
         self.reset_probability(occmap.to_probability())
 
-    def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals):
+    def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals, robot_id = None):
         np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
         time0 = time.time()
+        if robot_id is not None:
+            key_min = chr(robot_id + ord('a'))
+            key_max = chr(robot_id + ord('a') + 1)
+        else:
+            key_min = 0
+            key_max = -1
         # if len(slam_result.keys()) * self.cell_size < 100 or not self.use_torch:
         if not self.use_torch:
             for key in slam_result.keys():
                 if key < gtsam.symbol('a', 0):  # landmark case
                     pass
-                else:  # robot case
+                elif robot_id is None:
+                    pose = slam_result.atPose2(key)
+                    self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
+                                              marginals.marginalInformation(key))
+                elif gtsam.symbol(key_min, 0) <= key < gtsam.symbol(key_max, 0):  # robot case
                     pose = slam_result.atPose2(key)
                     self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
                                                   marginals.marginalInformation(key))
@@ -550,10 +562,10 @@ class VirtualMap:
                 self.data[i, j].reset_information(info_this)
                 self.data[i, j].set_updated()
 
-    def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None):
+    def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None, robot_id=None):
         self.update_probability(values)
         if marginals is not None:
-            self.update_information(values, marginals)
+            self.update_information(values, marginals, robot_id)
 
     def get_probability_matrix(self):
         probability_matrix = np.vectorize(lambda obj: obj.probability)(self.data)
@@ -562,7 +574,7 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_sum_uncertainty(self, type_optima="D"):
+    def get_sum_uncertainty(self, type_optima="A"):
         sum_uncertainty = 0.0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
@@ -573,9 +585,7 @@ class VirtualMap:
                 if type_optima == "A":
                     sum_uncertainty += np.sqrt(np.trace(self.data[i, j].covariance()))
                 elif type_optima == "D":
-                    if np.linalg.det(self.data[i, j].information) == 0:
-                        continue
-                    elif np.linalg.det(self.data[i, j].information) < 1e-6:
+                    if np.linalg.det(self.data[i, j].information) < 1e-6:
                         sum_uncertainty += 1000
                         if DEBUG:
                             with open('log_covariance.txt', 'a') as file:

@@ -9,7 +9,7 @@ from tqdm import tqdm
 if 1:
     # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
     ev = nav.exp_max.ExpVisualizer(seed=123, method="EM")# , map_path = "map_sparse_1.txt")
-    ev.init_visualize()
+    # ev.init_visualize()
     with open('log.txt', 'w') as file:
         file.write('log:\n')
     with open('log_covariance.txt', 'w') as file:

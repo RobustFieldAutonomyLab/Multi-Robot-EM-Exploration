@@ -19,19 +19,22 @@ class LandmarkSLAM:
         params.setFactorization("QR")
         self.isam = gtsam.ISAM2(params)
 
+        # GROUND TRUTH is in world frame, only used for evaluation
+        self.ground_truth = gtsam.Values()
+
         self.idx = []
         # Noise models for the prior
         self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.001, 0.001, 0.001])
         # Noise models for the odometry
         self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
         # Noise models for the range bearing measurements
-        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1])
-        # self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
-        #    gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1]))
+        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1])
+        self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
+           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1]))
         # Noise models for the robot observations
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.004])
-        # self.robot_noise_model = gtsam.noiseModel.Robust.Create(
-        #    gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004]))
+        # self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.004])
+        self.robot_noise_model = gtsam.noiseModel.Robust.Create(
+           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004]))
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
@@ -184,10 +187,12 @@ class LandmarkSLAM:
             if not obs:
                 continue
             self.idx[i] += 1
-            obs_odom, obs_landmark, obs_robot = obs
+            obs_odom, obs_landmark, obs_robot, ground_truth = obs
             if self.idx[i] == 0:
                 # add initial pose
                 self.init_SLAM(i, obs_robot)
+                ground_truth_pose = gtsam.Pose2(ground_truth[0], ground_truth[1], ground_truth[2])
+                self.ground_truth.insert(gtsam.symbol(chr(i + ord('a')), self.idx[i]), ground_truth_pose)
             else:
                 # add odometry
                 pre_pose = self.get_robot_value_result(i, self.idx[i] - 1)
@@ -195,6 +200,8 @@ class LandmarkSLAM:
                     pre_pose = self.get_robot_value_initial(i, self.idx[i] - 1)
                 initial_pose = pre_pose * gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2])
                 self.add_initial_pose(gtsam.symbol(chr(i + ord('a')), self.idx[i]), initial_pose)
+                ground_truth_pose = gtsam.Pose2(ground_truth[0], ground_truth[1], ground_truth[2])
+                self.ground_truth.insert(gtsam.symbol(chr(i + ord('a')), self.idx[i]), ground_truth_pose)
 
                 self.add_odom(gtsam.symbol(chr(i + ord('a')), self.idx[i] - 1),
                               gtsam.symbol(chr(i + ord('a')), self.idx[i]),
@@ -237,3 +244,6 @@ class LandmarkSLAM:
 
     def get_isam(self):
         return self.isam.getFactorsUnsafe(), self.initial_recorded
+
+    def get_ground_truth(self):
+        return self.ground_truth

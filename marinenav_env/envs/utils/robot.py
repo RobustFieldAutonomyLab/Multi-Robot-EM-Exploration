@@ -433,9 +433,9 @@ class Robot:
             for j, robot in enumerate(robots):
                 if robot is self:
                     continue
-                if robot.reach_goal and not self.signal_init:
+                # if robot.reach_goal and not self.signal_init:
                     # This robot is in the deactivate state, and abscent from the current map
-                    continue
+                    # continue
                 if not self.check_detection(robot.x, robot.y, robot.detect_r) and not self.signal_init:
                     continue
 

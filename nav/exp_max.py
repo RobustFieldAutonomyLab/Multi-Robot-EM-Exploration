@@ -11,6 +11,7 @@ from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER, PLOT_VIRTUAL_MAP
 from nav.utils import point_to_local, point_to_world
+import time
 
 DEBUG_EXP_MAX = False
 
@@ -80,6 +81,7 @@ class ExpVisualizer:
         self.landmark_slam = LandmarkSLAM()
         self.landmark_slam.reset_graph(len(self.env.robots))
         self.slam_frequency = 10
+        self.slam_ground_truth = []
         self.exploration_terminate_ratio = 0.85
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
@@ -98,11 +100,13 @@ class ExpVisualizer:
         self.slam_result = gtsam.Values()
         self.landmark_list = []
 
-        self.max_exploration_ratio = 0.8
+        self.max_exploration_ratio = 0.85
 
         self.cnt = 0
 
         self.method = method
+
+        self.history = []
 
     def init_visualize(self,
                        env_configs=None  # used in Mode 2
@@ -307,14 +311,15 @@ class ExpVisualizer:
             for i, action in enumerate(actions):
                 self.one_step(action, robot_idx=i)
             if plot_signal:
-                self.axis_grid.cla()
-                self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
-                self.plot_grid()
-                self.plot_robots()
-                self.visualize_SLAM()
-
-                self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
                 plot_cnt += 1
+                if self.plot_grid is not None:
+                    self.axis_grid.cla()
+                    self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
+                    self.plot_grid()
+                    self.plot_robots()
+                    self.visualize_SLAM()
+
+                    self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
         return True
 
     def explore_one_step(self, max_ite, path, video=False):
@@ -353,11 +358,12 @@ class ExpVisualizer:
             for i, action in enumerate(actions):
                 self.one_step(action, robot_idx=i)
             if plot_signal:
-                self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
-                self.plot_grid()
-                self.plot_robots()
-                self.visualize_SLAM()
-                self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
+                if self.axis_grid is not None:
+                    self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
+                    self.plot_grid()
+                    self.plot_robots()
+                    self.visualize_SLAM()
+                    self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
                 plot_cnt += 1
 
         return True
@@ -369,6 +375,7 @@ class ExpVisualizer:
         # obs_odom: [dx, dy, dtheta]
         # obs_landmark: [landmark0:range, bearing, id], [landmark1], ...]
         # obs_robot: [obs0: dx, dy, dtheta, id], [obs1], ...]
+        # ground truth robot: [x_r, y_r, theta_r]
 
         # env obs_list
         # format: {"self": [velocity,goal,pose],
@@ -403,7 +410,7 @@ class ExpVisualizer:
                     slam_obs_robot[j, 3] = copy.deepcopy(dynamic_state[5])
             else:
                 slam_obs_robot = []
-            slam_obs_list[i] = [slam_obs_odom, slam_obs_landmark, slam_obs_robot]
+            slam_obs_list[i] = [slam_obs_odom, slam_obs_landmark, slam_obs_robot, self_state[4:7]]
         return slam_obs_list
 
     def visualize_SLAM(self, start_idx=0):
@@ -420,23 +427,27 @@ class ExpVisualizer:
             self.axis_grid.plot(landmark_obs[1], landmark_obs[2], 'x', color='black', zorder=10)
 
     def draw_present_position(self):
-        pass
         for robot in self.env.robots:
             self.axis_graph.scatter(robot.x, robot.y, marker="*", color="yellow", s=500, zorder=5)
 
     def generate_frontier(self, idx):
-        self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
+        self.virtual_map.update(self.slam_result)  # , self.landmark_slam.get_marginal(), idx)
         probability_map = self.virtual_map.get_probability_matrix()
         latest_state = self.landmark_slam.get_latest_state(self.slam_origin)
         self.landmark_list = self.landmark_slam.get_landmark_list(self.slam_origin)
         explored_ratio, frontiers_generated = self.frontier_generator.generate(idx, probability_map,
                                                                                latest_state,
                                                                                self.landmark_list, self.axis_grid)
+
+
         if not frontiers_generated:
             assert "No more frontiers."
 
         if explored_ratio > self.exploration_terminate_ratio:
+            filename = self.method + "_" + str(self.env.num_obs) + ".txt"
+            np.savetxt(filename, np.array(self.history))
             return True, None
+        time0 = time.time()
         if self.method == "EM":
             goal, robot_waiting = self.frontier_generator.choose_EM(idx, self.landmark_slam.get_landmark_list(),
                                                                     self.landmark_slam.get_isam(),
@@ -451,19 +462,22 @@ class ExpVisualizer:
             goal, robot_waiting = self.frontier_generator.choose_BSP(idx, self.landmark_slam.get_landmark_list(),
                                                                      self.landmark_slam.get_last_key_state_pair(),
                                                                      self.axis_grid)
-
+        time1 = time.time()
+        time_this = time1 - time0
+        self.record_history(explored_ratio, time_this)
         if robot_waiting is not None:
             # let them wait for each other
             self.env.robots[robot_waiting].reset_waiting(idx)
             self.env.robots[idx].reset_waiting(robot_waiting)
 
         slam_poses = self.landmark_slam.get_last_key_state_pair(self.slam_origin)
-        if not DEBUG_EXP_MAX and not DEBUG_FRONTIER and not PLOT_VIRTUAL_MAP:
-            self.axis_grid.cla()
-        self.axis_grid.scatter(goal[0], goal[1], marker="*", color="red", s=300, zorder=6)  # , alpha=0.5)
-        self.axis_grid.scatter(latest_state[idx].x(),
-                               latest_state[idx].y(),
-                               marker='*', s=300, c='black', zorder=5)
+        if self.axis_grid is not None:
+            if not DEBUG_EXP_MAX and not DEBUG_FRONTIER and not PLOT_VIRTUAL_MAP:
+                self.axis_grid.cla()
+            self.axis_grid.scatter(goal[0], goal[1], marker="*", color="red", s=300, zorder=6)  # , alpha=0.5)
+            self.axis_grid.scatter(latest_state[idx].x(),
+                                   latest_state[idx].y(),
+                                   marker='*', s=300, c='black', zorder=5)
         goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
                                                                    self.env.robots[idx].y,
                                                                    self.env.robots[idx].theta])
@@ -472,6 +486,40 @@ class ExpVisualizer:
         else:
             return True, goal
 
+    def record_history(self, exploration_ratio, time_this):
+        # localization error
+        err_localization = 0
+        err_angle = 0
+        cnt = 0
+        ground_truth = self.landmark_slam.get_ground_truth()
+        result = self.landmark_slam.get_result(self.slam_origin)
+        dist = 0
+        for key in ground_truth.keys():
+            pose_true = ground_truth.atPose2(key)
+            pose_estimated = result.atPose2(key)
+            err_localization += np.linalg.norm([pose_true.x() - pose_estimated.x(),
+                                                pose_true.y() - pose_estimated.y()])
+            err_angle += np.abs(pose_true.theta() - pose_estimated.theta())
+            if ground_truth.exists(key + 1):
+                pose_true_next = ground_truth.atPose2(key + 1)
+                dist += np.linalg.norm([pose_true.x() - pose_true_next.x(),
+                                        pose_true.y() - pose_true_next.y()])
+            cnt += 1
+        err_localization /= len(ground_truth.keys())
+        err_angle /= len(ground_truth.keys())
+        # landmark error
+        err_landmark = 0
+        landmarks_list = self.landmark_slam.get_landmark_list(self.slam_origin)
+        for landmark in landmarks_list:
+            landmark_id = landmark[0]
+            landmark_real = np.array([self.env.obstacles[landmark_id].x, self.env.obstacles[landmark_id].y])
+            landmark_estimated = landmark[1:3]
+            err_landmark += np.linalg.norm(landmark_real - landmark_estimated)
+        err_landmark /= len(landmarks_list)
+        self.history.append([dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this])
+        print("dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
+              dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
+        # exploration ratio
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
         for i in range(0, self.env.num_cooperative):
