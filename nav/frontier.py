@@ -4,7 +4,6 @@ import math
 from scipy.ndimage import convolve
 from matplotlib.patches import Rectangle
 
-
 from nav.utils import point_to_local, point_to_world, generate_virtual_waypoints
 from nav.BSP import BeliefSpacePlanning, DEBUG_BSP
 from nav.EM import ExpectationMaximizationTrajectory, DEBUG_EM
@@ -114,8 +113,9 @@ class FrontierGenerator:
 
         self.virtual_move_length = 0.5
 
-        self.d_weight = 5
-        self.t_weight = 5
+        self.EMParam = {"w_d": 10, "w_t": 10}
+        self.BSPParam = {"w_d": 100}
+        self.CEParam = {"w_d": 100, "w_t": 10}
 
         self.u_t_speed = 10
         self.num_history_goal = 5
@@ -166,7 +166,7 @@ class FrontierGenerator:
         data = data_free | data_occupied
 
         explored_ratio = np.mean(data)
-        print("Present exploration ratio: ", explored_ratio)
+        # print("Present exploration ratio: ", explored_ratio)
 
         neighbor_sum = convolve(data.astype(int), self.neighbor_kernel, mode='constant', cval=0) - data.astype(int)
         data[0:self.boundary_value_i, :] = False  # avoid the boundary being selected
@@ -349,7 +349,7 @@ class FrontierGenerator:
                 u_t += self.compute_utility_task_allocation(pts, robot_id)
             # calculate the landmark visitation and new exploration case first
             u_d = compute_distance(frontier, robot_p)
-            cost_list.append((key, self.t_weight * u_t + self.d_weight * u_d))
+            cost_list.append((key, self.CEParam["w_t"] * u_t + self.CEParam["w_d"] * u_d))
         if cost_list == []:
             # if no frontier is available, return the nearest frontier
             goal = self.find_frontier_nearest_neighbor()
@@ -379,7 +379,7 @@ class FrontierGenerator:
                                        axis=axis)
             cost_this = self.compute_utility_BSP(result, marginals,
                                                  robot_state_idx_position_local[1][robot_id],
-                                                 frontier, robot_id)
+                                                 frontier)
             cost_list.append((key, cost_this))
         if cost_list == []:
             goal = self.find_frontier_nearest_neighbor()
@@ -439,7 +439,7 @@ class FrontierGenerator:
         return goal, robot_waiting
 
     def compute_utility_BSP(self, result: gtsam.Values, marginals: gtsam.Marginals,
-                            robot_p, frontier, robot_id):
+                            robot_p, frontier):
         u_d = compute_distance(frontier, robot_p)
         u_m = 0
         for key in result.keys():
@@ -455,7 +455,7 @@ class FrontierGenerator:
         if DEBUG_BSP:
             with open('log.txt', 'a') as file:
                 print("u_m, u_d: ", u_m, u_d, file=file)
-        return u_m + self.d_weight * u_d
+        return u_m + self.BSPParam["w_d"] * u_d
 
     def compute_utility_EM(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
                            robot_p, frontier, robot_id):
@@ -480,7 +480,7 @@ class FrontierGenerator:
                 print("robot id, robot position, frontier position: ", robot_id, robot_p,
                       frontier.position_local, frontier.position, file=file)
                 print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d, file=file)
-        return u_m + u_t * self.t_weight + u_d * self.d_weight
+        return u_m + u_t * self.EMParam["w_t"] + u_d * self.EMParam["w_d"]
 
     def compute_utility_task_allocation(self, frontier_w_list, robot_id):
         # local frame to global frame

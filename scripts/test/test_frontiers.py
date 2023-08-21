@@ -1,22 +1,33 @@
 import sys
-
+import os
 sys.path.insert(0, "../../")
 import nav.exp_max
 from tqdm import tqdm
 
+n = 30
+max_ite = 200
+cnt = 0
+pbar = tqdm(total=n)
 
+folder_name = "statistic_file"
 
-if 1:
-    # ev = env_visualizer.EnvVisualizer(seed=231,draw_envs=True)
-    ev = nav.exp_max.ExpVisualizer(seed=123, method="EM")# , map_path = "map_sparse_1.txt")
-    # ev.init_visualize()
-    with open('log.txt', 'w') as file:
-        file.write('log:\n')
-    with open('log_covariance.txt', 'w') as file:
-        file.write('log:\n')
+# Specify the path where you want to create the folder
+path = os.path.join(os.getcwd(), folder_name)
+if not os.path.exists(path) or not os.path.isdir(path):
+    os.mkdir(path)
+path = os.path.join(path, "EM")
+if not os.path.exists(path) or not os.path.isdir(path):
+    os.mkdir(path)
 
-    # Do a ten step navigate
-    n = 200
-    visualize = False
-    goal_list = []
-    ev.explore_one_step(n, "tmp/test_virtual_map")
+for i in range(n):
+    ev = nav.exp_max.ExpVisualizer(seed=123, method="EM", num=i)  # , map_path = "map.txt")
+    success = False
+    try:
+        success = ev.explore_one_step(max_ite)
+    except:
+        i = i - 1
+    if success:
+        cnt += 1
+    pbar.update(1)  # Manually update the progress bar
+
+pbar.close()

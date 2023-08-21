@@ -1,8 +1,7 @@
 import gtsam
 import numpy as np
-import copy
 from gtsam import symbol
-import math
+import networkx as nx
 
 
 def get_symbol(robot_id, idx):
@@ -110,3 +109,36 @@ def generate_virtual_waypoints(state_this, state_next, speed):
     waypoints = np.linspace(state_0, state_1, step)
 
     return waypoints.tolist()
+
+
+def heuristic(node, goal):
+    return np.sqrt((node[0] - goal[0]) ** 2 + (node[1] - goal[1]) ** 2)
+
+
+class A_Star:
+    def __init__(self, rows, cols, cell_size):
+        self.rows_scaled = int(rows / cell_size)
+        self.cols_scaled = int(cols / cell_size)
+        self.cell_size = cell_size
+
+    def a_star(self, start, goal, obstacles):
+        G = nx.grid_2d_graph(self.rows_scaled, self.cols_scaled)
+
+        # Set edge weights (uniform in this case)
+        for node in G.nodes():
+            G.nodes[node]['weight'] = 1
+
+        # Set some obstacles by removing nodes
+        obstacles_scaled = []
+        for obstacle in obstacles:
+            for i in range(-1,2):
+                for j in range(-1,2):
+                    obstacles_scaled.append((int(obstacle[1] / self.cell_size)+i, int(obstacle[2] / self.cell_size)+j))
+        G.remove_nodes_from(obstacles)
+
+        # Find the shortest path using A* algorithm
+        path = nx.astar_path(G, start, goal, heuristic=heuristic, weight='weight')
+        path = np.array(path) * self.cell_size
+
+        # Plot the graph and path
+        return path[1, :]

@@ -23,15 +23,12 @@ class APF_agent:
         velocity = np.array(self_state[2:4])
         goal = np.array(self_state[:2])
         dd = np.sqrt(goal[0] ** 2 + goal[1] ** 2)
-        vv = np.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
-        angle_v = from_cos_sin(velocity[0]/vv, velocity[1]/vv)
         angle_w = from_cos_sin(goal[0]/dd, goal[1]/dd)
-        d_angle = abs(theta_0_to_2pi(angle_v - angle_w))
-        if d_angle > np.pi:
-            d_angle = 2 * np.pi - d_angle
+        if angle_w > np.pi:
+            angle_w = 2 * np.pi - angle_w
 
-        if d_angle > (180-30)/180 * np.pi:
-            w_idx = np.argmin(np.pi)
+        if angle_w > (180-30)/180 * np.pi:
+            w_idx = np.argmin(angle_w)
             a = copy.deepcopy(self.a)
             a[a<=0.0] = -np.inf
             a_idx = np.argmin(np.abs(a))

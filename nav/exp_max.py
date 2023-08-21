@@ -10,7 +10,7 @@ from APF import APF_agent
 from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER, PLOT_VIRTUAL_MAP
-from nav.utils import point_to_local, point_to_world
+from nav.utils import point_to_local, point_to_world, A_Star
 import time
 
 DEBUG_EXP_MAX = False
@@ -54,9 +54,10 @@ class ExpVisualizer:
                  seed: int = 0,
                  dpi: int = 96,  # Monitor DPI
                  map_path: str = None,
-                 method: str = "NF"
+                 method: str = "NF",
+                 num: int = 0
                  ):
-
+        self.repeat_num = num
         self.env = marinenav_env.MarineNavEnv2(seed)
         self.env.reset()
 
@@ -74,6 +75,7 @@ class ExpVisualizer:
         self.dpi = dpi  # monitor DPI
 
         self.APF_agents = None
+        self.a_star = None
 
         self.initialize_apf_agents()
 
@@ -87,6 +89,7 @@ class ExpVisualizer:
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
                              "radius": self.env.robots[0].perception.range}
         self.virtual_map = VirtualMap(param_virtual_map)
+        self.a_star = A_Star(self.virtual_map.num_rows, self.virtual_map.num_cols, self.virtual_map.cell_size)
 
         self.color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
 
@@ -306,6 +309,13 @@ class ExpVisualizer:
                                 robot.y + speed * direction_this[1]]
                     robot.reset_goal(new_goal)
                     plot_signal = True
+
+                obstacles = self.landmark_slam.get_landmark_list(self.slam_origin)
+                if obstacles != []:
+                    vec, vec0, vec1 = observations[i][0]
+                    goal_new = self.a_star.a_star(vec[:2], vec[4:6], obstacles)
+                    vec[:2] = goal_new
+                    observations[i][0] = (vec, vec0, vec1)
                 actions.append(apf.act(observations[i][0]))
             # moving
             for i, action in enumerate(actions):
@@ -322,7 +332,7 @@ class ExpVisualizer:
                     self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
         return True
 
-    def explore_one_step(self, max_ite, path, video=False):
+    def explore_one_step(self, max_ite, path=None, video=False):
         self.slam_origin = [self.env.robots[0].start[0],
                             self.env.robots[0].start[1],
                             self.env.robots[0].init_theta]
@@ -365,8 +375,10 @@ class ExpVisualizer:
                     self.visualize_SLAM()
                     self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
                 plot_cnt += 1
-
-        return True
+        if stop_signal:
+            return True
+        else:
+            return False
 
     # update robot state and make animation when executing action sequence
     def generate_SLAM_observations(self, observations):
@@ -444,7 +456,7 @@ class ExpVisualizer:
             assert "No more frontiers."
 
         if explored_ratio > self.exploration_terminate_ratio:
-            filename = self.method + "_" + str(self.env.num_obs) + ".txt"
+            filename = "statistic_file/" + self.method + "/" + str(self.env.num_obs) + "_" + str(self.repeat_num) + ".txt"
             np.savetxt(filename, np.array(self.history))
             return True, None
         time0 = time.time()
@@ -515,10 +527,11 @@ class ExpVisualizer:
             landmark_real = np.array([self.env.obstacles[landmark_id].x, self.env.obstacles[landmark_id].y])
             landmark_estimated = landmark[1:3]
             err_landmark += np.linalg.norm(landmark_real - landmark_estimated)
-        err_landmark /= len(landmarks_list)
+        if len(landmarks_list) != 0:
+            err_landmark /= len(landmarks_list)
         self.history.append([dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this])
-        print("dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
-              dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
+        # print("dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
+        #       dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
         # exploration ratio
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
