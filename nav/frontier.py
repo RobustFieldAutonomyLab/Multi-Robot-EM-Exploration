@@ -116,7 +116,7 @@ class FrontierGenerator:
         self.virtual_move_length = 0.5
 
         self.d_weight = 5
-        self.t_weight = 100
+        self.t_weight = 10
 
         self.u_t_speed = 10
         self.num_history_goal = 5
@@ -412,7 +412,7 @@ class FrontierGenerator:
         self.draw_frontiers(axis)
         robot_waiting = None
         cost_list = []
-        U_m_0 = virtual_map.get_sum_uncertainty()
+        # U_m_0 = virtual_map.get_sum_uncertainty()
         for key, frontier in self.frontiers.items():
             # return the transformed virtual SLAM result for the calculation of the information of virtual map
             result, marginals = emt.do(robot_id=robot_id,
@@ -422,7 +422,7 @@ class FrontierGenerator:
             # no need to reset, since the update_information will reset the virtual map
             cost_this = self.compute_utility_EM(virtual_map, result, marginals,
                                                 robot_state_idx_position_local[1][robot_id],
-                                                frontier, robot_id, U_m_0)
+                                                frontier, robot_id)
             cost_list.append((key, cost_this))
         if cost_list == []:
             # if no frontier is available, return the nearest frontier
@@ -458,12 +458,12 @@ class FrontierGenerator:
         return u_m + self.d_weight * u_d
 
     def compute_utility_EM(self, virtual_map, result: gtsam.Values, marginals: gtsam.Marginals,
-                           robot_p, frontier, robot_id, U_m_0):
+                           robot_p, frontier, robot_id):
         # robot_position could be a tuple of two robots
         # calculate the cost of the frontier for a specific robot locally
         virtual_map.reset_information()
         virtual_map.update_information(result, marginals)
-        u_m = virtual_map.get_sum_uncertainty() - U_m_0
+        u_m = virtual_map.get_sum_uncertainty()
         num_history_goal = min(self.num_history_goal, len(self.goal_history[robot_id]))
         goals_task_allocation = self.goal_history[robot_id][-num_history_goal:]
         goals_task_allocation.append(point_to_world(robot_p.x(), robot_p.y(), self.origin))
