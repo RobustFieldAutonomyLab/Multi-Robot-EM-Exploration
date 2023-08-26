@@ -53,7 +53,7 @@ class ExpParams:
     def __init__(self, cell_size=4, env_width=160,
                  env_height=200, num_obs=100,
                  num_cooperative=3, boundary_dist=8,
-                 start_center=np.array([20, 100]), sensor_range=10):
+                 start_center=np.array([30, 100]), sensor_range=10):
         self.cell_size = cell_size
         self.env_width = env_width
         self.env_height = env_height

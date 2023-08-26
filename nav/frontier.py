@@ -9,7 +9,7 @@ from nav.BSP import BeliefSpacePlanning, DEBUG_BSP
 from nav.EM import ExpectationMaximizationTrajectory, DEBUG_EM
 
 DEBUG_FRONTIER = False
-PLOT_VIRTUAL_MAP = True
+PLOT_VIRTUAL_MAP = False
 
 
 class Frontier:
@@ -222,7 +222,6 @@ class FrontierGenerator:
             print("robot ", robot_id)
             print("distances: ", distances)
             print("index: ", index_this, position_this)
-            print("distances: ", distances)
         #
         # for index_in_range in indices_distances_within_list:
         #     if index_in_range[0] not in self.frontiers:
@@ -279,14 +278,14 @@ class FrontierGenerator:
                 dist_this = np.sqrt((state.x() - goal_this[0]) ** 2 + (state.y() - goal_this[1]) ** 2)
                 if dist_this < self.max_dist_robot_scaled:
                     continue  # the robot is too close to the goal
-                self.frontiers[len(indices) + robot_index] = Frontier(goal_this,
+                self.frontiers[len(indices_) + robot_index] = Frontier(goal_this,
                                                                       origin=self.origin,
                                                                       rendezvous=True)
 
                 # neighbor's time to the goal
                 dist_that = np.sqrt((state_list[robot_index].x() - goal_this[0]) ** 2 +
                                     (state_list[robot_index].y() - goal_this[1]) ** 2)
-                self.frontiers[len(indices) + robot_index]. \
+                self.frontiers[len(indices_) + robot_index]. \
                     add_waiting_punishment(robot_id=robot_index,
                                            punishment=abs(dist_this - dist_that))
 
