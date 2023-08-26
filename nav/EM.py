@@ -3,18 +3,20 @@ import gtsam
 import numpy as np
 from nav.utils import get_symbol, generate_virtual_waypoints, local_to_world_values
 from marinenav_env.envs.utils.robot import Odometry, RangeBearingMeasurement, RobotNeighborMeasurement
-DEBUG_EM = True
+
+DEBUG_EM = False
+
 
 class ExpectationMaximizationTrajectory:
     def __init__(self, radius, robot_state_idx_position_goal, landmarks, isam: tuple):
         # for odometry measurement
-        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.025, 0.025, 0.008])
 
         # for landmark measurement
-        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1])
+        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.005])
 
         # for inter-robot measurement
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004])
 
         self.slam_speed = 2
 
@@ -26,10 +28,8 @@ class ExpectationMaximizationTrajectory:
 
         params = gtsam.ISAM2Params()
         params.setFactorization("QR")
-        self.isam = gtsam.ISAM2(params)
-        self.isam.update(isam[0], isam[1])
-
-        self.new_factor_start_index = self.isam.getVariableIndex().nFactors()
+        self.isam = (isam[0], isam[1])
+        self.params = params
 
         self.robot_state_idx = robot_state_idx_position_goal[0]
         self.robot_state_position = robot_state_idx_position_goal[1]
@@ -168,15 +168,12 @@ class ExpectationMaximizationTrajectory:
     def optimize_virtual_observation_graph(self, graph: gtsam.NonlinearFactorGraph, initial_estimate: gtsam.Values):
         # optimize the graph
         # helps nothing but remind me to delete everything after using
-        isam_copy = self.isam
+        isam_copy = gtsam.ISAM2(self.params)
+        isam_copy.update(self.isam[0], self.isam[1])
         isam_copy.update(graph, initial_estimate)
         result = isam_copy.calculateEstimate()
         marginals = gtsam.Marginals(isam_copy.getFactorsUnsafe(), result)
 
-        # Delete the virtual observation factors from this iteration
-        factor_index_now = isam_copy.getVariableIndex().nFactors()
-        factors_to_remove = list(range(self.new_factor_start_index, factor_index_now))
-        isam_copy.update(gtsam.NonlinearFactorGraph(), gtsam.Values(), factors_to_remove)
         return result, marginals
 
     def do(self, frontier_position, robot_id, origin, axis):
@@ -197,7 +194,4 @@ class ExpectationMaximizationTrajectory:
                     scatters_x.append(result.atPose2(key).x())
                     scatters_y.append(result.atPose2(key).y())
             axis.scatter(scatters_x, scatters_y, c='b', marker='.', alpha=0.1)
-            with open('log.txt', 'a') as file:
-                print("frontier: ", key, file=file)
-
         return result, marginals

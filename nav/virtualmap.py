@@ -376,7 +376,7 @@ class VirtualMap:
         self.minX = parameters["minX"]
         self.minY = parameters["minY"]
         self.radius = parameters["radius"]
-        self.cell_size = 4  # cell size for virtual map
+        self.cell_size = parameters["cell_size"]  # cell size for virtual map
         self.num_cols = int(math.floor((self.maxX - self.minX) / self.cell_size))
         self.num_rows = int(math.floor((self.maxY - self.minY) / self.cell_size))
 
@@ -445,29 +445,19 @@ class VirtualMap:
         occmap.update_landmark(point)
         self.reset_probability(occmap.to_probability())
 
-    def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals, robot_id = None):
+    def update_information(self, slam_result: gtsam.Values, marginals: gtsam.Marginals, signal=True):
         np.vectorize(lambda obj, prob: obj.set_updated(prob))(self.data, np.full(self.data.shape, False))
         self.reset_information()
         time0 = time.time()
-        if robot_id is not None:
-            key_min = chr(robot_id + ord('a'))
-            key_max = chr(robot_id + ord('a') + 1)
-        else:
-            key_min = 0
-            key_max = -1
         # if len(slam_result.keys()) * self.cell_size < 100 or not self.use_torch:
         if not self.use_torch:
             for key in slam_result.keys():
                 if key < gtsam.symbol('a', 0):  # landmark case
                     pass
-                elif robot_id is None:
+                else:  # robot case
                     pose = slam_result.atPose2(key)
                     self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
-                                              marginals.marginalInformation(key))
-                elif gtsam.symbol(key_min, 0) <= key < gtsam.symbol(key_max, 0):  # robot case
-                    pose = slam_result.atPose2(key)
-                    self.update_information_robot(np.array([pose.x(), pose.y(), pose.theta()]),
-                                                  marginals.marginalInformation(key))
+                                                  marginals.marginalInformation(key), signal)
         else:
             poses_array = []
             information_matrix_array = []
@@ -485,25 +475,24 @@ class VirtualMap:
                     information_matrix_array.append(marginal)
                     cnt += 1
             self.update_information_robot_batch(torch.tensor(np.array(poses_array)),
-                                                torch.tensor(np.array(information_matrix_array)))
+                                                torch.tensor(np.array(information_matrix_array)), signal)
         time1 = time.time()
         if DEBUG:
             with open('log.txt', 'a') as file:
                 print("time information: ", time1 - time0, file=file)
 
-    def update_information_robot_batch(self, poses, information_matrix):
+    def update_information_robot_batch(self, poses, information_matrix, signal):
         indices, points = self.find_neighbor_indices_batch(poses[:, :2])
         _, _, Hx, Hl = pose_2_point_measurement_batch(poses, points)
         sigmas = torch.tensor(np.array([self.range_bearing_model.sigma_b, self.range_bearing_model.sigma_r]))
 
         info_batch = predict_virtual_landmark_batch(Hx, Hl, sigmas, information_matrix)
         info_batch = info_batch.view(-1, 2, 2)
-
         for n, [i, j] in enumerate(indices.view(-1, 2).numpy()):
             if i < 0 or i >= self.num_rows or j < 0 or j >= self.num_cols:
                 continue
             # not yet part of the map
-            if self.data[i, j].probability > 0.49:
+            if self.data[i, j].probability < 0.49 and signal:
                 continue
             if self.data[i, j].updated:
                 self.data[i, j].update_information_weighted(info_batch[n, :, :])
@@ -545,10 +534,10 @@ class VirtualMap:
         y = indices[:, :, 0] * self.cell_size + self.cell_size * .5 + self.minY
         return torch.stack([x, y], dim=-1)
 
-    def update_information_robot(self, state: np.ndarray, information_matrix):
+    def update_information_robot(self, state: np.ndarray, information_matrix, signal):
         indices = self.find_neighbor_indices(np.array([state[0], state[1]]))
         for [i, j] in indices:
-            if self.data[i, j].probability < 0.49:
+            if self.data[i, j].probability < 0.49 and signal:
                 continue
 
             info_this = predict_virtual_landmark(state,
@@ -562,10 +551,11 @@ class VirtualMap:
                 self.data[i, j].reset_information(info_this)
                 self.data[i, j].set_updated()
 
-    def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None, robot_id=None):
+    def update(self, values: gtsam.Values, marginals: gtsam.Marginals = None):
         self.update_probability(values)
         if marginals is not None:
-            self.update_information(values, marginals, robot_id)
+            self.update_information(values, marginals, False)
+
 
     def get_probability_matrix(self):
         probability_matrix = np.vectorize(lambda obj: obj.probability)(self.data)
@@ -574,7 +564,7 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_sum_uncertainty(self, type_optima="A"):
+    def get_sum_uncertainty(self, type_optima="D"):
         sum_uncertainty = 0.0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
@@ -583,10 +573,8 @@ class VirtualMap:
                 #     continue
                 # cnt += 1
                 if type_optima == "A":
-                    sum_uncertainty += np.sqrt(np.trace(self.data[i, j].covariance()))
-                elif type_optima == "D":
-                    if np.linalg.det(self.data[i, j].information) < 1e-6:
-                        sum_uncertainty += 1000
+                    if np.trace(self.data[i, j].information) < 1e-6:
+                        sum_uncertainty += 1000000
                         if DEBUG:
                             with open('log_covariance.txt', 'a') as file:
                                 print("information:", self.data[i, j].information,
@@ -594,5 +582,16 @@ class VirtualMap:
                                 print("covariance:", self.data[i, j].covariance(),
                                       np.linalg.det(self.data[i, j].covariance()), file=file)
                     else:
-                        sum_uncertainty += np.sqrt(np.linalg.det(self.data[i, j].covariance()))
+                        sum_uncertainty += np.trace(self.data[i, j].covariance())
+                elif type_optima == "D":
+                    if np.linalg.det(self.data[i, j].information) < 1e-6:
+                        sum_uncertainty += 1000000
+                        if DEBUG:
+                            with open('log_covariance.txt', 'a') as file:
+                                print("information:", self.data[i, j].information,
+                                      np.linalg.det(self.data[i, j].information), file=file)
+                                print("covariance:", self.data[i, j].covariance(),
+                                      np.linalg.det(self.data[i, j].covariance()), file=file)
+                    else:
+                        sum_uncertainty += np.linalg.det(self.data[i, j].covariance())
         return sum_uncertainty

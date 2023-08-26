@@ -5,10 +5,10 @@ from nav.utils import theta_0_to_2pi, pose_vector_to_matrix, world_to_local
 
 class Perception:
 
-    def __init__(self, cooperative: bool = False):
+    def __init__(self, sensor_range=10, cooperative: bool = False):
         # 2D LiDAR model with detection area as a sector
         self.observation = None
-        self.range = 10.0  # range of beams (meter)
+        self.range = sensor_range  # range of beams (meter)
         self.angle = 2 * np.pi  # detection angle range
         # self.len_obs_history = 0  # the window size of observation history
         self.observation_format(cooperative)
@@ -29,9 +29,9 @@ class Odometry:
     def __init__(self, use_noise=True):
         self.use_noise = use_noise
         if use_noise:
-            self.max_g_error = 2 / 180 * np.pi  # max gyro error
-            self.max_a_error = 0.02  # max acceleration error
-            self.max_a_p_error = 0.02  # max acceleration error percentage
+            self.max_g_error = 1 / 180 * np.pi  # max gyro error
+            self.max_a_error = 0.05  # max acceleration error
+            self.max_a_p_error = 0.05  # max acceleration error percentage
             z_score = 1.96  # 95% confidence interval
 
             self.sigma_g = self.max_g_error / z_score
@@ -101,7 +101,7 @@ class RangeBearingMeasurement:
     def __init__(self, use_noise=True):
         self.use_noise = use_noise
         if use_noise:
-            self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
+            self.max_b_error = 0.5 / 180 * np.pi  # max bearing error
             self.max_r_error = 0.1  # max range error
             z_score = 1.96  # 95% confidence interval
 
@@ -149,7 +149,7 @@ class RobotNeighborMeasurement:
         self.use_noise = use_noise
         if use_noise:
             self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
-            self.max_r_error = 0.05  # max range error
+            self.max_r_error = 0.2  # max range error
             z_score = 1.96  # 95% confidence interval
 
             self.sigma_r = self.max_r_error / z_score
@@ -197,18 +197,18 @@ class RobotNeighborMeasurement:
 
 class Robot:
 
-    def __init__(self, cooperative: bool = False):
+    def __init__(self, sensor_range=10, cooperative: bool = False):
 
         # parameter initialization
         self.cooperative = cooperative  # if the robot is cooperative or not
         self.dt = .2  # discretized time step (second)
         self.N = 5  # number of time step per action
-        self.perception = Perception(cooperative)
+        self.perception = Perception(sensor_range=sensor_range, cooperative=cooperative)
         self.length = 1.0
         self.width = 0.5
         self.r = 0.8  # collision range
         self.detect_r = 0.5 * np.sqrt(self.length ** 2 + self.width ** 2)  # detection range
-        self.goal_dis = 1.0  # max distance to goal considered as reached
+        self.goal_dis = 1  # max distance to goal considered as reached
         self.max_speed = 1.0
         self.a = np.array([-0.4, 0.0, 0.4])  # linear accelerations (m/s^2)
         self.w = np.zeros(12)  # angular velocities (rad/s)
@@ -244,7 +244,7 @@ class Robot:
         self.waiting = False
         self.waiting_for_robot = None
 
-    def reset_waiting(self, id = None):
+    def reset_waiting(self, id=None):
         if id is not None:
             self.waiting = True
             self.waiting_for_robot = id
@@ -434,8 +434,8 @@ class Robot:
                 if robot is self:
                     continue
                 # if robot.reach_goal and not self.signal_init:
-                    # This robot is in the deactivate state, and abscent from the current map
-                    # continue
+                # This robot is in the deactivate state, and abscent from the current map
+                # continue
                 if not self.check_detection(robot.x, robot.y, robot.detect_r) and not self.signal_init:
                     continue
 

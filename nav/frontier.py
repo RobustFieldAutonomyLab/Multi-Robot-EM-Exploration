@@ -9,7 +9,7 @@ from nav.BSP import BeliefSpacePlanning, DEBUG_BSP
 from nav.EM import ExpectationMaximizationTrajectory, DEBUG_EM
 
 DEBUG_FRONTIER = False
-PLOT_VIRTUAL_MAP = False
+PLOT_VIRTUAL_MAP = True
 
 
 class Frontier:
@@ -93,11 +93,11 @@ class FrontierGenerator:
         self.radius = parameters["radius"]
         self.origin = parameters["origin"]
 
-        self.max_dist_robot = 30
+        self.max_dist_robot = 15
         self.min_dist_landmark = 10
-        self.allocation_max_distance = 20
+        self.allocation_max_distance = 30
 
-        self.min_landmark_frontier_cnt = 5
+        self.min_landmark_frontier_cnt = 2
 
         self.max_dist_robot_scaled = float(self.max_dist_robot) / float(self.cell_size)
         self.max_dist_landmark_scaled = float(self.min_dist_landmark) / float(self.cell_size)
@@ -108,19 +108,20 @@ class FrontierGenerator:
                                          [1, 0, 1],
                                          [0, 1, 0]])
         self.max_visited_neighbor = 2
+        self.explored_ratio = 0
 
         self.more_frontiers = False
 
         self.virtual_move_length = 0.5
 
-        self.EMParam = {"w_d": 10, "w_t": 10}
-        self.BSPParam = {"w_d": 100}
-        self.CEParam = {"w_d": 100, "w_t": 10}
+        self.EMParam = {"w_d": 2, "w_t": 20, "w_t_degenerate": 1}
+        self.BSPParam = {"w_d": 5}
+        self.CEParam = {"w_d": 1, "w_t": 10}
 
         self.u_t_speed = 10
         self.num_history_goal = 5
 
-        self.boundary_dist = 8  # Avoid frontiers near boundaries since our environment actually do not have boundary
+        self.boundary_dist = parameters["boundary_dist"]  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_dist / self.cell_size)
         self.boundary_value_i = int(self.boundary_dist / self.cell_size)
         if DEBUG_FRONTIER:
@@ -159,13 +160,14 @@ class FrontierGenerator:
             positions[:, 1] = index[:, 0] * self.cell_size + self.cell_size * .5 + self.min_y
             return positions
 
-    def generate_potential_frontier_indices(self, probability_map):
+    def generate_potential_frontier_indices(self, probability_map, max_visited_neighbor):
         # generate frontier candidates
         data_free = probability_map < self.free_threshold
         data_occupied = probability_map > self.obstacle_threshold
         data = data_free | data_occupied
 
         explored_ratio = np.mean(data)
+        self.explored_ratio = explored_ratio
         # print("Present exploration ratio: ", explored_ratio)
 
         neighbor_sum = convolve(data.astype(int), self.neighbor_kernel, mode='constant', cval=0) - data.astype(int)
@@ -174,7 +176,7 @@ class FrontierGenerator:
         data[:, 0:self.boundary_value_j] = False
         data[:, -self.boundary_value_j:] = False
 
-        frontier_candidate_pool_data = data & (neighbor_sum < self.max_visited_neighbor)
+        frontier_candidate_pool_data = data & (neighbor_sum < max_visited_neighbor)
         indices = np.argwhere(frontier_candidate_pool_data)
         if DEBUG_FRONTIER:
             print("indices: ", indices)
@@ -189,15 +191,8 @@ class FrontierGenerator:
             print("state_list: ", state_list)
             print("num_robot: ", self.num_robot)
             raise ValueError("len(state_list) not equal to num of robots!")
-        explored_ratio, indices = self.generate_potential_frontier_indices(probability_map)
-        if PLOT_VIRTUAL_MAP:
-            axis.cla()
-            for index in indices:
-                point_index = np.array(self.index_2_position(index))
-                rectangle = Rectangle(point_index - 2, 4, 4, linewidth=.5, edgecolor='tab:blue', facecolor='tab:blue',
-                                      alpha=0.3)
-                axis.add_patch(rectangle)
-        if indices == []:
+        explored_ratio, indices = self.generate_potential_frontier_indices(probability_map, self.max_visited_neighbor)
+        if len(indices) == 0:
             return explored_ratio, False
 
         # clear history
@@ -207,18 +202,15 @@ class FrontierGenerator:
         state = state_list[robot_id]
         state_index = np.array(self.position_2_index([state.x(), state.y()]))
 
-        # distance between the target robot abd frontier candidates
-        distances = np.linalg.norm(indices - state_index, axis=1)
-        if DEBUG_FRONTIER:
-            print("robot ", robot_id)
-            print("distances: ", distances)
-
         # find the frontiers close enough to the target robot
-        indices_distances_within_list = np.argwhere(distances < self.max_dist_robot_scaled)
+        # indices_distances_within_list = np.argwhere(distances < self.max_dist_robot_scaled)
 
         # Type 1 frontier, the nearest frontier to current position
+        _, indices_ = self.generate_potential_frontier_indices(probability_map, max_visited_neighbor=3)
+        # distance between the target robot abd frontier candidates
+        distances = np.linalg.norm(indices_ - state_index, axis=1)
         index_this = np.argmin(distances)
-        position_this = self.index_2_position(indices[index_this])
+        position_this = self.index_2_position(indices_[index_this])
 
         if index_this in self.frontiers:
             self.frontiers[index_this].nearest_frontier = True
@@ -227,13 +219,15 @@ class FrontierGenerator:
                                                   origin=self.origin,
                                                   nearest_frontier=True)
         if DEBUG_FRONTIER:
+            print("robot ", robot_id)
+            print("distances: ", distances)
             print("index: ", index_this, position_this)
             print("distances: ", distances)
-
-        for index_in_range in indices_distances_within_list:
-            if index_in_range[0] not in self.frontiers:
-                position_this = self.index_2_position(indices[index_in_range[0]])
-                self.frontiers[index_in_range[0]] = Frontier(position_this, origin=self.origin)
+        #
+        # for index_in_range in indices_distances_within_list:
+        #     if index_in_range[0] not in self.frontiers:
+        #         position_this = self.index_2_position(indices[index_in_range[0]])
+        #         self.frontiers[index_in_range[0]] = Frontier(position_this, origin=self.origin)
 
         # Type 2 frontier, re-visitation of existing landmarks
         landmark_frontier_cnt = 0
@@ -253,7 +247,7 @@ class FrontierGenerator:
                                                              relative=landmark[0])
                 landmark_frontier_cnt += 1
 
-        if (self.more_frontiers or landmark_frontier_cnt < self.min_landmark_frontier_cnt) and landmark_list != []:
+        if (self.more_frontiers or len(self.frontiers) < self.min_landmark_frontier_cnt) and landmark_list != []:
             # frontiers with landmarks on the way there
             landmark_array = np.array(landmark_list)[:, 1:]
             landmark_array_index = self.position_2_index(landmark_array)
@@ -317,16 +311,17 @@ class FrontierGenerator:
                 scatters_y.append(frontier.position[1])
             axis.scatter(scatters_x, scatters_y, c='y', marker='.')
         if PLOT_VIRTUAL_MAP:
+            axis.cla()
             for frontier in self.frontiers.values():
                 if frontier.rendezvous:
                     axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='tab:yellow', marker='o', s=300, zorder=5)
+                                 c='#4859af', marker='o', s=300, zorder=5)
                 elif frontier.relatives == []:
                     axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='tab:purple', marker='o', s=300, zorder=5)
+                                 c='#4883af', marker='o', s=300, zorder=5)
                 else:
                     axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='tab:orange', marker='o', s=300, zorder=5)
+                                 c='#865eb3', marker='o', s=300, zorder=5)
 
     def choose_NF(self, robot_id):
         goal = self.find_frontier_nearest_neighbor()
@@ -346,7 +341,7 @@ class FrontierGenerator:
                 pts = generate_virtual_waypoints(goal, frontier.position, speed=self.u_t_speed)
                 if pts == []:
                     pts = [frontier.position]
-                u_t += self.compute_utility_task_allocation(pts, robot_id)
+                u_t += self.compute_utility_task_allocation(pts, robot_id, True)
             # calculate the landmark visitation and new exploration case first
             u_d = compute_distance(frontier, robot_p)
             cost_list.append((key, self.CEParam["w_t"] * u_t + self.CEParam["w_d"] * u_d))
@@ -449,9 +444,10 @@ class FrontierGenerator:
                 pose = result.atPose2(key)
                 try:
                     marginal = marginals.marginalInformation(key)
+                    u_m += np.sqrt(marginals.marginalCovariance(key).trace())
                 except RuntimeError:
                     marginal = np.zeros((3, 3))
-                u_m += np.sqrt(marginals.marginalCovariance(key).trace())
+                    u_m += 1000
         if DEBUG_BSP:
             with open('log.txt', 'a') as file:
                 print("u_m, u_d: ", u_m, u_d, file=file)
@@ -480,9 +476,10 @@ class FrontierGenerator:
                 print("robot id, robot position, frontier position: ", robot_id, robot_p,
                       frontier.position_local, frontier.position, file=file)
                 print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d, file=file)
-        return u_m + u_t * self.EMParam["w_t"] + u_d * self.EMParam["w_d"]
+        w_t = max(1 - self.explored_ratio * self.EMParam["w_t_degenerate"], 0)
+        return u_m + u_t * self.EMParam["w_t"] * w_t + u_d * self.EMParam["w_d"]
 
-    def compute_utility_task_allocation(self, frontier_w_list, robot_id):
+    def compute_utility_task_allocation(self, frontier_w_list, robot_id, ce_flag=False):
         # local frame to global frame
         u_t = 0
         for frontier_w in frontier_w_list:
@@ -491,12 +488,17 @@ class FrontierGenerator:
                     continue
                 for goal in goal_list:
                     dist = np.sqrt((goal[0] - frontier_w[0]) ** 2 + (goal[1] - frontier_w[1]) ** 2)
-                    u_t += self.compute_P_d(dist)
+                    u_t += self.compute_P_d(dist, ce_flag)
         return u_t
 
-    def compute_P_d(self, dist):
-        if dist < self.allocation_max_distance:
-            P_d = 1 - dist / self.allocation_max_distance
+    def compute_P_d(self, dist, ce_flag=False):
+        if ce_flag:
+            allocation_max_distance = self.allocation_max_distance
+        else:
+            allocation_max_distance = self.allocation_max_distance * \
+                                  (1 - self.explored_ratio*self.EMParam["w_t_degenerate"])
+        if dist < allocation_max_distance:
+            P_d = 1 - dist / allocation_max_distance
         else:
             P_d = 0
         return P_d

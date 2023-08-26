@@ -25,14 +25,14 @@ class APF_agent:
         dd = np.sqrt(goal[0] ** 2 + goal[1] ** 2)
         angle_w = from_cos_sin(goal[0]/dd, goal[1]/dd)
         if angle_w > np.pi:
-            angle_w = 2 * np.pi - angle_w
+            angle_w = angle_w - 2 * np.pi
 
-        if angle_w > (180-30)/180 * np.pi:
-            w_idx = np.argmin(angle_w)
-            a = copy.deepcopy(self.a)
-            a[a<=0.0] = -np.inf
-            a_idx = np.argmin(np.abs(a))
-            return a_idx * len(self.w) + w_idx
+        # if angle_w > (180-30)/180 * np.pi:
+        w_idx = np.argmin(abs(angle_w-self.w))
+        a = copy.deepcopy(self.a)
+        a[a<=0.0] = -np.inf
+        a_idx = np.argmin(np.abs(a))
+        return a_idx * len(self.w) + w_idx
 
         # sonar_points = observation[4:]
 

@@ -26,15 +26,15 @@ class LandmarkSLAM:
         # Noise models for the prior
         self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.001, 0.001, 0.001])
         # Noise models for the odometry
-        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.025, 0.025, 0.008])
         # Noise models for the range bearing measurements
-        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1])
+        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.05])
         self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
-           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1]))
+           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.05]))
         # Noise models for the robot observations
-        # self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.004])
+        # self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004])
         self.robot_noise_model = gtsam.noiseModel.Robust.Create(
-           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004]))
+           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004]))
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
@@ -243,7 +243,7 @@ class LandmarkSLAM:
         return self.marginals
 
     def get_isam(self):
-        return self.isam.getFactorsUnsafe(), self.initial_recorded
+        return self.isam.getFactorsUnsafe(), self.result
 
     def get_ground_truth(self):
         return self.ground_truth

@@ -25,7 +25,7 @@ class Obstacle:
 
 # class MarineNavEnv2(gym.Env):
 class MarineNavEnv2:
-    def __init__(self, seed: int = 0, schedule: dict = None):
+    def __init__(self, seed: int = 0, schedule: dict = None, params: dict = None):
 
         self.sd = seed
         self.rd = np.random.RandomState(seed)  # PRNG
@@ -34,8 +34,8 @@ class MarineNavEnv2:
         # self.action_space = gym.spaces.Discrete(self.robot.compute_actions_dimension())
 
         # parameter initialization
-        self.width = 200  # x coordinate dimension of the map
-        self.height = 200  # y coordinate dimension of the map
+        self.width = params["width"]  # x coordinate dimension of the map
+        self.height = params["height"] # y coordinate dimension of the map
         self.r = 0.5  # radius of vortex core
         self.v_rel_max = 1.0  # max allowable speed when two currents flowing towards each other
         self.p = 0.8  # max allowable relative speed at another vortex core
@@ -52,16 +52,16 @@ class MarineNavEnv2:
         self.goal_reward = 100.0
         self.discount = 0.99
         self.num_cores = 0  # number of vortices
-        self.num_obs = 60  # number of static obstacles
+        self.num_obs = params["num_obs"]  # number of static obstacles
         self.min_start_goal_dis = 3.0
-        self.num_cooperative = 3  # number of cooperative robots
+        self.num_cooperative = params["num_cooperative"] # number of cooperative robots
         self.num_non_cooperative = 0  # number of non-cooperative robots
-
+        self.sensor_range = params["sensor_range"]
         self.robots = []  # list of robots
         for _ in range(self.num_cooperative):
-            self.robots.append(robot.Robot(cooperative=True))
+            self.robots.append(robot.Robot(sensor_range=params["sensor_range"], cooperative=True))
         for _ in range(self.num_non_cooperative):
-            self.robots.append(robot.Robot(cooperative=False))
+            self.robots.append(robot.Robot(sensor_range=params["sensor_range"], cooperative=False))
 
         self.cores = []  # list of vortex cores
         self.obstacles = []  # list of static obstacles
@@ -82,7 +82,7 @@ class MarineNavEnv2:
     def get_action_space_dimension(self):
         return self.robot.compute_actions_dimension()
 
-    def reset(self):
+    def reset(self, start_center):
         # reset the environment
 
         if self.schedule is not None:
@@ -117,18 +117,19 @@ class MarineNavEnv2:
         num_robots = 0
         iteration = 1000
         # start_center = np.array([self.width-10, self.height/2])
-        # start_center = np.array([self.width/2, self.height/2])
+        # start_center = np.array([20, self.height/2])
         # start_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
         # goal_center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
-
+        # start_centers = [[10,10], [self.width-10, 10], [self.width-10, self.height-10], [10, self.height-10]]
         while True:
-            # start = self.rd.uniform(low=start_center - np.array([5.0, 5.0]), high=start_center + np.array([5.0, 5.0]))
+            start = self.rd.uniform(low=start_center - np.array([5.0, 5.0]),
+                                    high=start_center + np.array([5.0, 5.0]))
             # goal = self.rd.uniform(low=goal_center - np.array([5.0, 5.0]), high=goal_center + np.array([5.0, 5.0]))
-            start = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
+            # start = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
             goal = self.rd.uniform(low=start - np.array([4.0, 4.0]), high=start)
             iteration -= 1
             if self.check_start_and_goal(start, goal):
-                rob = robot.Robot(robot_types[num_robots])
+                rob = robot.Robot(self.sensor_range, robot_types[num_robots])
                 rob.start = start
                 rob.goal = goal
                 self.reset_robot(rob)
@@ -169,7 +170,7 @@ class MarineNavEnv2:
         if num_obs > 0:
             iteration = 500
             while True:
-                center = self.rd.uniform(low=5.0 * np.ones(2), high=np.array([self.width - 5.0, self.height - 5.0]))
+                center = self.rd.uniform(low=0.0 * np.ones(2), high=np.array([self.width, self.height]))
                 r = self.rd.uniform(low=self.obs_r_range[0], high=self.obs_r_range[1])
                 obs = Obstacle(center[0], center[1], r)
                 iteration -= 1

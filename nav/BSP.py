@@ -11,13 +11,13 @@ class BeliefSpacePlanning:
     def __init__(self, radius, robot_state_idx_position_goal, landmarks):
         self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.001, 0.001, 0.001])
         # for odometry measurement
-        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.04])
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.025, 0.025, 0.008])
 
         # for landmark measurement
-        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.1])
+        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.05])
 
         # for inter-robot measurement
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.05, 0.05, 0.004])
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004])
 
         self.slam_speed = 2
 

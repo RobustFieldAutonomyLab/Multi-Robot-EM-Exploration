@@ -11,6 +11,7 @@ from nav.navigation import LandmarkSLAM
 from nav.virtualmap import VirtualMap
 from nav.frontier import FrontierGenerator, DEBUG_EM, DEBUG_FRONTIER, PLOT_VIRTUAL_MAP
 from nav.utils import point_to_local, point_to_world, A_Star
+from matplotlib.colors import LinearSegmentedColormap, to_rgba
 import time
 
 DEBUG_EXP_MAX = False
@@ -42,27 +43,47 @@ def plot_info_ellipse(position, info, axis, nstd=.2, **kwargs):
     theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
 
     width, height = 2 * nstd * np.sqrt(vals)
-    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs, color='tab:gray', alpha=0.5)
+    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs, color='#4859af', alpha=0.3)
 
     axis.add_artist(ellip)
     return ellip
+
+
+class ExpParams:
+    def __init__(self, cell_size=4, env_width=160,
+                 env_height=200, num_obs=100,
+                 num_cooperative=3, boundary_dist=8,
+                 start_center=np.array([20, 100]), sensor_range=10):
+        self.cell_size = cell_size
+        self.env_width = env_width
+        self.env_height = env_height
+        self.num_obs = num_obs
+        self.num_cooperative = num_cooperative
+        self.boundary_dist = boundary_dist
+        self.dpi = 96
+        self.map_path = None
+        self.start_center = start_center
+        self.sensor_range = sensor_range
 
 
 class ExpVisualizer:
 
     def __init__(self,
                  seed: int = 0,
-                 dpi: int = 96,  # Monitor DPI
-                 map_path: str = None,
                  method: str = "NF",
-                 num: int = 0
+                 num: int = 0,
+                 folder_path: str = None,
+                 params: ExpParams = ExpParams()
                  ):
         self.repeat_num = num
-        self.env = marinenav_env.MarineNavEnv2(seed)
-        self.env.reset()
+        params_env = {"width": params.env_width, "height": params.env_height,
+                      "num_obs": params.num_obs,"num_cooperative": params.num_cooperative,
+                      "sensor_range": params.sensor_range}
+        self.env = marinenav_env.MarineNavEnv2(seed, params = params_env)
+        self.env.reset(params.start_center)
 
-        if map_path is not None:
-            self.env.load_map(map_path)
+        if params.map_path is not None:
+            self.env.load_map(params.map_path)
 
         self.fig = None  # figure for visualization
         self.axis_graph = None  # sub figure for the map
@@ -72,7 +93,7 @@ class ExpVisualizer:
         self.robots_last_pos = []
         self.robots_traj_plot = []
 
-        self.dpi = dpi  # monitor DPI
+        self.dpi = params.dpi  # monitor DPI
 
         self.APF_agents = None
         self.a_star = None
@@ -87,17 +108,18 @@ class ExpVisualizer:
         self.exploration_terminate_ratio = 0.85
 
         param_virtual_map = {"maxX": self.env.width, "maxY": self.env.height, "minX": 0, "minY": 0,
-                             "radius": self.env.robots[0].perception.range}
+                             "radius": self.env.robots[0].perception.range, "cell_size": params.cell_size}
         self.virtual_map = VirtualMap(param_virtual_map)
         self.a_star = A_Star(self.virtual_map.num_rows, self.virtual_map.num_cols, self.virtual_map.cell_size)
 
-        self.color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
+        self.color_list = ['#865eb3', '#48adaf', '#4883af', '#4859af', '#aeaead']
 
         param_frontier = self.virtual_map.get_parameters()
         param_frontier["num_robot"] = self.env.num_cooperative
         param_frontier["origin"] = [self.env.robots[0].start[0],
                                     self.env.robots[0].start[1],
                                     self.env.robots[0].init_theta]
+        param_frontier["boundary_dist"] = params.boundary_dist
         self.frontier_generator = FrontierGenerator(param_frontier)
 
         self.slam_result = gtsam.Values()
@@ -108,16 +130,16 @@ class ExpVisualizer:
         self.cnt = 0
 
         self.method = method
+        self.folder_path = folder_path
 
         self.history = []
 
-    def init_visualize(self,
-                       env_configs=None  # used in Mode 2
-                       ):
+    def init_visualize(self, draw_ground_truth=True):
         # Mode 1 (default): Display an episode
         self.fig = plt.figure(figsize=(32, 16))
         spec = self.fig.add_gridspec(5, 4)
-        self.axis_graph = self.fig.add_subplot(spec[:, :2])
+        if draw_ground_truth:
+            self.axis_graph = self.fig.add_subplot(spec[:, :2])
         self.axis_grid = self.fig.add_subplot(spec[:, 2:4])
         if self.axis_graph is not None:
             self.plot_graph(self.axis_graph)
@@ -125,7 +147,19 @@ class ExpVisualizer:
     def plot_grid(self, probability=True, information=True):
         if probability:
             data = self.virtual_map.get_probability_matrix()
-            self.axis_grid.imshow(data, origin='lower', alpha=0.5, cmap='bone_r', vmin=0.0, vmax=1.0,
+            custom_colors = ['#ffffff', '#4859af']
+            a = to_rgba(custom_colors[0])
+            b = to_rgba(custom_colors[1])
+            cmap_segments = {'red': [(0.0, a[0], a[0]),
+                                     (1.0, b[0], b[0])],
+
+                             'green': [(0.0, a[1], a[1]),
+                                       (1.0, b[1], b[1])],
+
+                             'blue': [(0.0, a[2], a[2]),
+                                      (1.0, b[2], b[2])]}
+            custom_cmap = LinearSegmentedColormap('CustomColormap', cmap_segments)
+            self.axis_grid.imshow(data, origin='lower', alpha=0.5, cmap=custom_cmap, vmin=0.0, vmax=1.0,
                                   extent=[self.virtual_map.minX, self.virtual_map.maxX,
                                           self.virtual_map.minY, self.virtual_map.maxY])
         self.axis_grid.set_xticks([])
@@ -133,14 +167,14 @@ class ExpVisualizer:
         self.axis_grid.set_xlim([0, self.env.width])
         self.axis_grid.set_ylim([0, self.env.height])
         if information:
-            self.virtual_map.update_information(self.slam_result, self.landmark_slam.marginals)
+            self.virtual_map.update(self.slam_result, self.landmark_slam.marginals)
             virtual_map = self.virtual_map.get_virtual_map()
             for i, map_row in enumerate(virtual_map):
                 for j, virtual_landmark in enumerate(map_row):
                     plot_info_ellipse(np.array([virtual_landmark.x,
                                                 virtual_landmark.y]),
                                       virtual_landmark.information, self.axis_grid,
-                                      nstd=self.virtual_map.cell_size * 0.08)
+                                      nstd=self.virtual_map.cell_size * 0.3)
 
     def plot_graph(self, axis):
         # plot current velocity in the mapf
@@ -311,11 +345,11 @@ class ExpVisualizer:
                     plot_signal = True
 
                 obstacles = self.landmark_slam.get_landmark_list(self.slam_origin)
-                if obstacles != []:
-                    vec, vec0, vec1 = observations[i][0]
-                    goal_new = self.a_star.a_star(vec[:2], vec[4:6], obstacles)
-                    vec[:2] = goal_new
-                    observations[i][0] = (vec, vec0, vec1)
+                # if obstacles != []:
+                #     vec, vec0, vec1 = observations[i][0]
+                #     goal_new = self.a_star.a_star(vec[:2], vec[4:6], obstacles)
+                #     vec[:2] = goal_new
+                #     observations[i][0] = (vec, vec0, vec1)
                 actions.append(apf.act(observations[i][0]))
             # moving
             for i, action in enumerate(actions):
@@ -369,12 +403,12 @@ class ExpVisualizer:
                 self.one_step(action, robot_idx=i)
             if plot_signal:
                 if self.axis_grid is not None:
-                    self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
                     self.plot_grid()
                     self.plot_robots()
                     self.visualize_SLAM()
                     self.fig.savefig(path + str(plot_cnt) + ".png", bbox_inches="tight")
                 plot_cnt += 1
+        self.save()
         if stop_signal:
             return True
         else:
@@ -443,7 +477,7 @@ class ExpVisualizer:
             self.axis_graph.scatter(robot.x, robot.y, marker="*", color="yellow", s=500, zorder=5)
 
     def generate_frontier(self, idx):
-        self.virtual_map.update(self.slam_result)  # , self.landmark_slam.get_marginal(), idx)
+        self.virtual_map.update(self.slam_result, self.landmark_slam.get_marginal())
         probability_map = self.virtual_map.get_probability_matrix()
         latest_state = self.landmark_slam.get_latest_state(self.slam_origin)
         self.landmark_list = self.landmark_slam.get_landmark_list(self.slam_origin)
@@ -451,16 +485,21 @@ class ExpVisualizer:
                                                                                latest_state,
                                                                                self.landmark_list, self.axis_grid)
 
-
         if not frontiers_generated:
+            self.save()
             assert "No more frontiers."
 
         if explored_ratio > self.exploration_terminate_ratio:
-            filename = "statistic_file/" + self.method + "/" + str(self.env.num_obs) + "_" + str(self.repeat_num) + ".txt"
-            np.savetxt(filename, np.array(self.history))
             return True, None
         time0 = time.time()
-        if self.method == "EM":
+        if self.method == "EM_2":
+            self.frontier_generator.EMParam["w_t"] = 0
+            goal, robot_waiting = self.frontier_generator.choose_EM(idx, self.landmark_slam.get_landmark_list(),
+                                                                    self.landmark_slam.get_isam(),
+                                                                    self.landmark_slam.get_last_key_state_pair(),
+                                                                    self.virtual_map,
+                                                                    self.axis_grid)
+        elif self.method == "EM_3":
             goal, robot_waiting = self.frontier_generator.choose_EM(idx, self.landmark_slam.get_landmark_list(),
                                                                     self.landmark_slam.get_isam(),
                                                                     self.landmark_slam.get_last_key_state_pair(),
@@ -489,7 +528,7 @@ class ExpVisualizer:
             self.axis_grid.scatter(goal[0], goal[1], marker="*", color="red", s=300, zorder=6)  # , alpha=0.5)
             self.axis_grid.scatter(latest_state[idx].x(),
                                    latest_state[idx].y(),
-                                   marker='*', s=300, c='black', zorder=5)
+                                   marker='*', s=300, c='black', zorder=7)
         goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
                                                                    self.env.robots[idx].y,
                                                                    self.env.robots[idx].theta])
@@ -497,6 +536,11 @@ class ExpVisualizer:
             return False, goal
         else:
             return True, goal
+
+    def save(self):
+        filename = self.folder_path + "/" + self.method + "/" + str(self.env.num_obs) + "_" + str(
+            self.repeat_num) + ".txt"
+        np.savetxt(filename, np.array(self.history))
 
     def record_history(self, exploration_ratio, time_this):
         # localization error
@@ -530,9 +574,11 @@ class ExpVisualizer:
         if len(landmarks_list) != 0:
             err_landmark /= len(landmarks_list)
         self.history.append([dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this])
-        # print("dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
-        #       dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
+        if self.axis_grid is not None:
+            print("dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
+                  dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
         # exploration ratio
+
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']
         for i in range(0, self.env.num_cooperative):
