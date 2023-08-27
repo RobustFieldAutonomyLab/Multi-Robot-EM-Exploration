@@ -29,7 +29,7 @@ class Odometry:
     def __init__(self, use_noise=True):
         self.use_noise = use_noise
         if use_noise:
-            self.max_g_error = 1 / 180 * np.pi  # max gyro error
+            self.max_g_error = .5 / 180 * np.pi  # max gyro error
             self.max_a_error = 0.05  # max acceleration error
             self.max_a_p_error = 0.05  # max acceleration error percentage
             z_score = 1.96  # 95% confidence interval
@@ -102,7 +102,7 @@ class RangeBearingMeasurement:
         self.use_noise = use_noise
         if use_noise:
             self.max_b_error = 0.5 / 180 * np.pi  # max bearing error
-            self.max_r_error = 0.1  # max range error
+            self.max_r_error = 0.002  # max range error
             z_score = 1.96  # 95% confidence interval
 
             self.sigma_r = self.max_r_error / z_score
@@ -149,7 +149,7 @@ class RobotNeighborMeasurement:
         self.use_noise = use_noise
         if use_noise:
             self.max_b_error = 0.2 / 180 * np.pi  # max bearing error
-            self.max_r_error = 0.2  # max range error
+            self.max_r_error = 0.002  # max range error
             z_score = 1.96  # 95% confidence interval
 
             self.sigma_r = self.max_r_error / z_score
@@ -329,18 +329,25 @@ class Robot:
         # update robot position in one time step
         self.update_velocity(current_velocity)
         dis = self.velocity * self.dt
-        self.x += dis[0]
-        self.y += dis[1]
+        # self.x += dis[0]
+        # self.y += dis[1]
 
         # update robot speed in one time step
-        a, w = self.actions[action]
+        # a, w = self.actions[action]
 
+        self.theta += action
+        self.update_velocity(current_velocity)
+        dis = self.velocity * self.dt
+        self.x += dis[0]
+        self.y += dis[1]
+        a = 1
         # assume that water resistance force is proportion to the speed
-        # self.speed += (a-self.k*self.speed) * self.dt
-        # self.speed = np.clip(self.speed,0.0,self.max_speed)
+        self.speed += (a-self.k*self.speed) * self.dt
+        self.speed = np.clip(self.speed,0.0,self.max_speed)
 
         # update robot heading angle in one time step
-        self.theta += w * self.dt
+        # self.theta += w * self.dt
+
 
         # warp theta to [0,2*pi)
         while self.theta < 0.0:
@@ -364,9 +371,9 @@ class Robot:
         if np.linalg.norm(proj_pos) > self.perception.range + obj_r:
             return False
 
-        angle = np.arctan2(proj_pos[1], proj_pos[0])
-        if angle < -0.5 * self.perception.angle or angle > 0.5 * self.perception.angle:
-            return False
+        # angle = np.arctan2(proj_pos[1], proj_pos[0])
+        # if angle < -0.5 * self.perception.angle or angle > 0.5 * self.perception.angle:
+        #     return False
 
         return True
 

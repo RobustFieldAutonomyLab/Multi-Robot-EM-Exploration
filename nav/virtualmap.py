@@ -60,6 +60,7 @@ class VirtualLandmark:
         if information is None:
             init_information = np.array([[1 / (self.sigma ** 2), 0], [0, 1 / (self.sigma ** 2)]])
             self.information = init_information
+
         else:
             self.information = information
 
@@ -492,8 +493,8 @@ class VirtualMap:
             if i < 0 or i >= self.num_rows or j < 0 or j >= self.num_cols:
                 continue
             # not yet part of the map
-            if self.data[i, j].probability < 0.49 and signal:
-                continue
+            # if self.data[i, j].probability < 0.49 and signal:
+            #     continue
             if self.data[i, j].updated:
                 self.data[i, j].update_information_weighted(info_batch[n, :, :])
             else:
@@ -537,8 +538,8 @@ class VirtualMap:
     def update_information_robot(self, state: np.ndarray, information_matrix, signal):
         indices = self.find_neighbor_indices(np.array([state[0], state[1]]))
         for [i, j] in indices:
-            if self.data[i, j].probability < 0.49 and signal:
-                continue
+            # if self.data[i, j].probability < 0.49 and signal:
+            #     continue
 
             info_this = predict_virtual_landmark(state,
                                                  information_matrix,
@@ -564,11 +565,13 @@ class VirtualMap:
     def get_virtual_map(self):
         return self.data
 
-    def get_sum_uncertainty(self, type_optima="D"):
+    def get_sum_uncertainty(self, type_optima="A"):
         sum_uncertainty = 0.0
         for i in range(0, self.num_rows):
             for j in range(0, self.num_cols):
                 # not yet observed or explored
+                # with open('log.txt', 'a') as file:
+                #     print(self.data[i, j].probability, np.trace(self.data[i, j].covariance()),file=file)
                 # if self.data[i, j].probability > 0.49:
                 #     continue
                 # cnt += 1

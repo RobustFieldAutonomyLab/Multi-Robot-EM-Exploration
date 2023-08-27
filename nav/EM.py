@@ -10,13 +10,13 @@ DEBUG_EM = False
 class ExpectationMaximizationTrajectory:
     def __init__(self, radius, robot_state_idx_position_goal, landmarks, isam: tuple):
         # for odometry measurement
-        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.025, 0.025, 0.008])
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.03, 0.03, 0.004])
 
         # for landmark measurement
-        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.005])
+        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.001])
 
         # for inter-robot measurement
-        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004])
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.004])
 
         self.slam_speed = 2
 
@@ -77,22 +77,23 @@ class ExpectationMaximizationTrajectory:
             initial_estimate.insert(get_symbol(robot_id, id_initial + i),
                                     gtsam.Pose2(waypoint[0], waypoint[1], waypoint[2]))
 
-            if self.landmarks_position != []:
+            if len(self.landmarks_position) != 0:
                 # calculate Euclidean distance between waypoint and landmarks
                 distances = np.linalg.norm(self.landmarks_position - np.array(waypoint[0:2]), axis=1)
                 landmark_indices = np.argwhere(distances < self.radius)
             else:
                 landmark_indices = []
-            if landmark_indices != []:
+            if len(landmark_indices) != 0:
                 # add landmark observation factor
                 for landmark_index in landmark_indices:
-                    landmark_this = self.landmarks_position[landmark_index]
+                    landmark_this = self.landmarks_position[landmark_index[0]]
                     # calculate range and bearing
                     rb = range_bearing_factory.add_noise_point_based(waypoint, landmark_this)
                     graph.add(self.landmark_measurement_gtsam_format(bearing=rb[1], range=rb[0],
                                                                      robot_id=robot_id,
                                                                      id0=id_initial + i,
-                                                                     idl=landmark_this[0]))
+                                                                     idl=self.landmarks_id[landmark_index[0]]))
+        # print(graph)
         return graph, initial_estimate
 
     def waypoints2robot_observation(self, waypoints: tuple, robot_id: tuple, graph=None):
@@ -171,13 +172,31 @@ class ExpectationMaximizationTrajectory:
         isam_copy = gtsam.ISAM2(self.params)
         isam_copy.update(self.isam[0], self.isam[1])
         isam_copy.update(graph, initial_estimate)
-        result = isam_copy.calculateEstimate()
-        marginals = gtsam.Marginals(isam_copy.getFactorsUnsafe(), result)
+        try:
+            result = isam_copy.calculateEstimate()
+            marginals = gtsam.Marginals(isam_copy.getFactorsUnsafe(), result)
+        except:
+            print(graph)
+            print(initial_estimate)
+        # with open('log.txt', 'a') as file:
+        #     # print(graph, file=file)
+        #     # print(initial_estimate, file=file)
+        #     a = 0
+        #     b = 0
+        #     for key in result.keys():
+        #         try:
+        #             a+=marginals.marginalCovariance(key).trace()
+        #             b+=np.linalg.det(marginals.marginalCovariance(key))
+        #         except:
+        #             print(result)
+        #     print(a,b, file=file)
+                # print(key, marginals.marginalCovariance(key).trace(),
+                #       np.linalg.det(marginals.marginalCovariance(key)), file=file)
 
         return result, marginals
 
     def do(self, frontier_position, robot_id, origin, axis):
-        # return the optimized trajectories of the robots and the marginals for calculation of information  matrix
+        # return the optimized trajectories of the robots and the marginals for calculation of information  matrixc
         graph, initial_estimate = self.generate_virtual_observation_graph(frontier_position=frontier_position,
                                                                           robot_id=robot_id)
         result, marginals = self.optimize_virtual_observation_graph(graph, initial_estimate)

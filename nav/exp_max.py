@@ -43,7 +43,7 @@ def plot_info_ellipse(position, info, axis, nstd=.2, **kwargs):
     theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
 
     width, height = 2 * nstd * np.sqrt(vals)
-    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs, color='#4859af', alpha=0.3)
+    ellip = Ellipse(xy=position, width=width, height=height, angle=theta, **kwargs, color='#444444', alpha=0.3)
 
     axis.add_artist(ellip)
     return ellip
@@ -53,7 +53,8 @@ class ExpParams:
     def __init__(self, cell_size=4, env_width=160,
                  env_height=200, num_obs=100,
                  num_cooperative=3, boundary_dist=8,
-                 start_center=np.array([30, 100]), sensor_range=10):
+                 start_center=np.array([25, 80]), sensor_range=10,
+                 map_path=None):
         self.cell_size = cell_size
         self.env_width = env_width
         self.env_height = env_height
@@ -61,7 +62,7 @@ class ExpParams:
         self.num_cooperative = num_cooperative
         self.boundary_dist = boundary_dist
         self.dpi = 96
-        self.map_path = None
+        self.map_path = map_path
         self.start_center = start_center
         self.sensor_range = sensor_range
 
@@ -126,6 +127,7 @@ class ExpVisualizer:
         self.landmark_list = []
 
         self.max_exploration_ratio = 0.85
+        self.max_dist = 1400
 
         self.cnt = 0
 
@@ -147,7 +149,7 @@ class ExpVisualizer:
     def plot_grid(self, probability=True, information=True):
         if probability:
             data = self.virtual_map.get_probability_matrix()
-            custom_colors = ['#ffffff', '#4859af']
+            custom_colors = ['#ffffff', '#444444']
             a = to_rgba(custom_colors[0])
             b = to_rgba(custom_colors[1])
             cmap_segments = {'red': [(0.0, a[0], a[0]),
@@ -273,7 +275,7 @@ class ExpVisualizer:
                 self.robots_plot.append(
                     self.axis_graph.text(robot.x - 1, robot.y + 1, str(i), color="yellow", fontsize=15))
 
-                if self.robots_last_pos[i] != []:
+                if len(self.robots_last_pos[i]) != 0:
                     h = self.axis_graph.plot((self.robots_last_pos[i][0], robot.x),
                                              (self.robots_last_pos[i][1], robot.y),
                                              color='tab:orange', linestyle='--')
@@ -345,7 +347,7 @@ class ExpVisualizer:
                     plot_signal = True
 
                 obstacles = self.landmark_slam.get_landmark_list(self.slam_origin)
-                # if obstacles != []:
+                # if len(obstacles) != 0:
                 #     vec, vec0, vec1 = observations[i][0]
                 #     goal_new = self.a_star.a_star(vec[:2], vec[4:6], obstacles)
                 #     vec[:2] = goal_new
@@ -489,8 +491,6 @@ class ExpVisualizer:
             self.save()
             assert "No more frontiers."
 
-        if explored_ratio > self.exploration_terminate_ratio:
-            return True, None
         time0 = time.time()
         if self.method == "EM_2":
             self.frontier_generator.EMParam["w_t"] = 0
@@ -515,7 +515,7 @@ class ExpVisualizer:
                                                                      self.axis_grid)
         time1 = time.time()
         time_this = time1 - time0
-        self.record_history(explored_ratio, time_this)
+        dist = self.record_history(explored_ratio, time_this)
         if robot_waiting is not None:
             # let them wait for each other
             self.env.robots[robot_waiting].reset_waiting(idx)
@@ -532,7 +532,7 @@ class ExpVisualizer:
         goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
                                                                    self.env.robots[idx].y,
                                                                    self.env.robots[idx].theta])
-        if explored_ratio < self.max_exploration_ratio:
+        if explored_ratio < self.max_exploration_ratio or dist < self.max_dist:
             return False, goal
         else:
             return True, goal
@@ -575,9 +575,9 @@ class ExpVisualizer:
             err_landmark /= len(landmarks_list)
         self.history.append([dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this])
         if self.axis_grid is not None:
-            print("dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
-                  dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
-        # exploration ratio
+            print(len(self.history) - 1 , "dist, err_localization, err_angle, err_landmark, exploration_ratio, time: ",
+                dist, err_localization, err_angle, err_landmark, exploration_ratio, time_this)
+        return dist
 
     def visualize_frontier(self):
         # color_list = ['tab:pink', 'tab:green', 'tab:red', 'tab:purple', 'tab:orange', 'tab:gray', 'tab:olive']

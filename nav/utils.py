@@ -97,6 +97,7 @@ def generate_virtual_waypoints(state_this, state_next, speed):
     elif isinstance(state_this, np.ndarray) or isinstance(state_next, list):
         state_0 = np.array([state_this[0], state_this[1], 0])
     else:
+        print(state_this, state_this.type)
         raise ValueError("Only accept gtsam.Pose2 and numpy.ndarray")
     if isinstance(state_next, gtsam.Pose2):
         state_1 = np.array([state_next.x(), state_next.y(), state_next.theta()])

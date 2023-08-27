@@ -305,7 +305,7 @@ class EnvVisualizer:
                                                                                  alpha=0.2)))
             self.robots_plot.append(self.axis_graph.text(robot.x - 1, robot.y + 1, str(i), color="yellow", fontsize=15))
 
-            if self.robots_last_pos[i] != []:
+            if len(self.robots_last_pos[i]) != 0:
                 h = self.axis_graph.plot((self.robots_last_pos[i][0], robot.x),
                                          (self.robots_last_pos[i][1], robot.y),
                                          color='tab:orange', linestyle='--')

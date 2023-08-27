@@ -81,23 +81,24 @@ class BeliefSpacePlanning:
             initial_estimate.insert(get_symbol(robot_id, id_initial + i),
                                     gtsam.Pose2(waypoint[0], waypoint[1], waypoint[2]))
 
-            if self.landmarks_position != []:
+            if len(self.landmarks_position) != 0:
                 # calculate Euclidean distance between waypoint and landmarks
                 distances = np.linalg.norm(self.landmarks_position - np.array(waypoint[0:2]), axis=1)
                 landmark_indices = np.argwhere(distances < self.radius)
             else:
                 landmark_indices = []
-            if landmark_indices != []:
+            if len(landmark_indices) != 0:
                 # add landmark observation factor
                 for landmark_index in landmark_indices:
-                    landmark_this = self.landmarks_position[landmark_index]
+                    landmark_this = self.landmarks_position[landmark_index[0]]
                     # calculate range and bearing
                     rb = range_bearing_factory.add_noise_point_based(waypoint, landmark_this)
-                    initial_estimate.insert(landmark_index, gtsam.Point2(landmark_this[0], landmark_this[1]))
+                    if not initial_estimate.exists(self.landmarks_id[landmark_index[0]]):
+                        initial_estimate.insert(self.landmarks_id[landmark_index[0]], gtsam.Point2(landmark_this[0], landmark_this[1]))
                     graph.add(self.landmark_measurement_gtsam_format(bearing=rb[1], range=rb[0],
                                                                      robot_id=robot_id,
                                                                      id0=id_initial + i,
-                                                                     idl=landmark_this[0]))
+                                                                     idl=self.landmarks_id[landmark_index[0]]))
         return graph, initial_estimate
 
     def waypoints2robot_observation(self, waypoints: tuple, robot_id: tuple, graph=None):

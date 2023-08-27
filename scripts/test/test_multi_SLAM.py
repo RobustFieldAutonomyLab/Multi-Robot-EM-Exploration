@@ -24,19 +24,21 @@ if not os.path.exists(path_) or not os.path.isdir(path_):
 
 with open("log.txt", 'w') as f:
     f.write("")
-params = nav.exp_max.ExpParams(env_width=80,
-                               env_height=50,
-                               num_obs=10,
-                               num_cooperative=2,
-                               boundary_dist=6,
+params = nav.exp_max.ExpParams(env_width=100,
+                               env_height=100,
+                               num_obs=30,
+                               num_cooperative=3,
+                               boundary_dist=4,
                                cell_size=2,
-                               start_center=np.array([20, 25]),
-                               sensor_range=5)
-for i in range(n):
-    ev = nav.exp_max.ExpVisualizer(seed=799, method="EM_2", num=i, folder_path=path,
-                                   params=params)  # , map_path = "map.txt")
+                               start_center=np.array([20, 50]),
+                               sensor_range=7.5)
+# params = nav.exp_max.ExpParams(num_obs=20, map_path = "map.txt", env_width=50, env_height = 50)
 
-    ev.init_visualize(False)
+for i in range(n):
+    ev = nav.exp_max.ExpVisualizer(num=i, seed=755, method="NF", params=params,
+                                   folder_path=path)
+
+    ev.init_visualize()
     success = False
     # try:
     success = ev.explore_one_step(max_ite, "tmp/test_virtual_map")

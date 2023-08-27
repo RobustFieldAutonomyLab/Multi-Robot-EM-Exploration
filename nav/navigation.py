@@ -24,17 +24,17 @@ class LandmarkSLAM:
 
         self.idx = []
         # Noise models for the prior
-        self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.001, 0.001, 0.001])
+        self.prior_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.0001, 0.0001, 0.0001])
         # Noise models for the odometry
-        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.025, 0.025, 0.008])
+        self.odom_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.03, 0.03, 0.004])
         # Noise models for the range bearing measurements
-        # self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.05])
-        self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
-           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.05]))
+        self.range_bearing_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.001])
+        # self.range_bearing_noise_model = gtsam.noiseModel.Robust.Create(
+        #    gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.004, 0.001]))
         # Noise models for the robot observations
-        # self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004])
-        self.robot_noise_model = gtsam.noiseModel.Robust.Create(
-           gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004]))
+        self.robot_noise_model = gtsam.noiseModel.Diagonal.Sigmas([0.1, 0.1, 0.004])
+        # self.robot_noise_model = gtsam.noiseModel.Robust.Create(
+        #    gtsam.noiseModel.mEstimator.Cauchy.Create(0.1), gtsam.noiseModel.Diagonal.Sigmas([0.01, 0.01, 0.004]))
 
         self.parameters = gtsam.LevenbergMarquardtParams()
 
@@ -161,7 +161,7 @@ class LandmarkSLAM:
             self.add_prior(gtsam.symbol(chr(robot_id + ord('a')), 0), gtsam.Pose2(0, 0, 0))
             self.add_initial_pose(gtsam.symbol(chr(robot_id + ord('a')), 0), gtsam.Pose2(0, 0, 0))
             initialized = True
-        elif obs_robot != []:
+        elif len(obs_robot) != 0:
             for obs_r_this in obs_robot:
                 idr = int(obs_r_this[3])
                 if idr == 0:
@@ -207,7 +207,7 @@ class LandmarkSLAM:
                               gtsam.symbol(chr(i + ord('a')), self.idx[i]),
                               gtsam.Pose2(obs_odom[0], obs_odom[1], obs_odom[2]))
 
-            if obs_landmark != []:
+            if len(obs_landmark) != 0:
                 # print("landmark: ", obs_landmark)
                 for obs_l_this in obs_landmark:
                     r, b, idl = obs_l_this
@@ -222,7 +222,7 @@ class LandmarkSLAM:
                     # add landmark observation
                     self.add_bearing_range(gtsam.symbol(chr(i + ord('a')), self.idx[i]), idl, r, b)
 
-            if obs_robot != []:
+            if len(obs_robot) != 0:
                 # print("idx: ", self.idx)
                 for obs_r_this in obs_robot:
                     idr = int(obs_r_this[3])

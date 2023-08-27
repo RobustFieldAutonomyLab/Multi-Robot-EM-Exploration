@@ -97,7 +97,7 @@ class FrontierGenerator:
         self.min_dist_landmark = 10
         self.allocation_max_distance = 30
 
-        self.min_landmark_frontier_cnt = 2
+        self.min_landmark_frontier_cnt = 5
 
         self.max_dist_robot_scaled = float(self.max_dist_robot) / float(self.cell_size)
         self.max_dist_landmark_scaled = float(self.min_dist_landmark) / float(self.cell_size)
@@ -114,14 +114,15 @@ class FrontierGenerator:
 
         self.virtual_move_length = 0.5
 
-        self.EMParam = {"w_d": 2, "w_t": 20, "w_t_degenerate": 1}
+        self.EMParam = {"w_d": 10, "w_t": 100, "w_t_degenerate": 1}
         self.BSPParam = {"w_d": 5}
         self.CEParam = {"w_d": 1, "w_t": 10}
 
         self.u_t_speed = 10
         self.num_history_goal = 5
 
-        self.boundary_dist = parameters["boundary_dist"]  # Avoid frontiers near boundaries since our environment actually do not have boundary
+        self.boundary_dist = parameters[
+            "boundary_dist"]  # Avoid frontiers near boundaries since our environment actually do not have boundary
         self.boundary_value_j = int(self.boundary_dist / self.cell_size)
         self.boundary_value_i = int(self.boundary_dist / self.cell_size)
         if DEBUG_FRONTIER:
@@ -206,11 +207,11 @@ class FrontierGenerator:
         # indices_distances_within_list = np.argwhere(distances < self.max_dist_robot_scaled)
 
         # Type 1 frontier, the nearest frontier to current position
-        _, indices_ = self.generate_potential_frontier_indices(probability_map, max_visited_neighbor=3)
+        # _, indices_ = self.generate_potential_frontier_indices(probability_map, max_visited_neighbor=3)
         # distance between the target robot abd frontier candidates
-        distances = np.linalg.norm(indices_ - state_index, axis=1)
+        distances = np.linalg.norm(indices - state_index, axis=1)
         index_this = np.argmin(distances)
-        position_this = self.index_2_position(indices_[index_this])
+        position_this = self.index_2_position(indices[index_this])
 
         if index_this in self.frontiers:
             self.frontiers[index_this].nearest_frontier = True
@@ -235,7 +236,8 @@ class FrontierGenerator:
             landmark_index = np.array(self.position_2_index([landmark[1], landmark[2]]))
             distances = np.linalg.norm(indices - landmark_index, axis=1)
             # find the candidates close enough to the landmark
-            indices_distances_within_list = np.argwhere(distances < self.max_dist_landmark_scaled)
+            indices_distances_within_list = np.argwhere((distances >self.max_dist_robot_scaled) &
+                                                        (distances < self.max_dist_landmark_scaled))
 
             for index_this in indices_distances_within_list:
                 if index_this[0] in self.frontiers:
@@ -246,7 +248,7 @@ class FrontierGenerator:
                                                              relative=landmark[0])
                 landmark_frontier_cnt += 1
 
-        if (self.more_frontiers or len(self.frontiers) < self.min_landmark_frontier_cnt) and landmark_list != []:
+        if (self.more_frontiers or len(self.frontiers) < self.min_landmark_frontier_cnt) and len(landmark_list) != 0:
             # frontiers with landmarks on the way there
             landmark_array = np.array(landmark_list)[:, 1:]
             landmark_array_index = self.position_2_index(landmark_array)
@@ -264,28 +266,45 @@ class FrontierGenerator:
                         position_this = self.index_2_position(index_this)
                         self.frontiers[i] = Frontier(position_this, origin=self.origin,
                                                      relative=landmark_list[landmark_min][0])
-                landmark_frontier_cnt += 1
+                        landmark_frontier_cnt += 1
+
+        # if (self.more_frontiers or len(self.frontiers) < self.min_landmark_frontier_cnt) and len(landmark_list) != 0:
+        #     landmark_array = np.array(landmark_list)[:, :]
+        #     landmark_array= sorted(landmark_array,
+        #                                   key=lambda elem: np.linalg.norm([state.x(), state.y()] - elem[1:]))
+        #     distances = [np.linalg.norm([state.x(), state.y()] - elem[1:]) for elem in landmark_array]
+        #     dt = int(len(landmark_array) / self.min_landmark_frontier_cnt)
+        #     for i, landmark_this in enumerate(landmark_array):
+        #         if len(self.frontiers) > self.min_landmark_frontier_cnt:
+        #             break
+        #         # if there are landmarks on the way there
+        #         if i % dt == 0 and distances[i] > self.radius:
+        #             # print("landmark revisit: ", landmark_this, )
+        #             self.frontiers[i+len(indices)] = Frontier(landmark_this[1:] + [self.radius/2, self.radius/2],
+        #                                          origin=self.origin,
+        #                                          relative=int(landmark_this[0]))
+        #         landmark_frontier_cnt += 1
 
         # Type 3 frontier,meet with other robots
         if landmark_frontier_cnt < self.min_landmark_frontier_cnt:
             for robot_index in range(self.num_robot):
                 if robot_index == robot_id:
                     continue  # you don't need to meet yourself
-                if self.goal_history[robot_index] == []:
+                if len(self.goal_history[robot_index]) == 0:
                     continue  # the robot has no goal
                 goal_this = self.goal_history[robot_index][-1]
                 # my time to the goal
                 dist_this = np.sqrt((state.x() - goal_this[0]) ** 2 + (state.y() - goal_this[1]) ** 2)
-                if dist_this < self.max_dist_robot_scaled:
+                if dist_this < self.max_dist_robot:
                     continue  # the robot is too close to the goal
-                self.frontiers[len(indices_) + robot_index] = Frontier(goal_this,
-                                                                      origin=self.origin,
-                                                                      rendezvous=True)
+                self.frontiers[len(indices) + robot_index] = Frontier(goal_this,
+                                                                       origin=self.origin,
+                                                                       rendezvous=True)
 
                 # neighbor's time to the goal
                 dist_that = np.sqrt((state_list[robot_index].x() - goal_this[0]) ** 2 +
                                     (state_list[robot_index].y() - goal_this[1]) ** 2)
-                self.frontiers[len(indices_) + robot_index]. \
+                self.frontiers[len(indices) + robot_index]. \
                     add_waiting_punishment(robot_id=robot_index,
                                            punishment=abs(dist_this - dist_that))
 
@@ -309,10 +328,10 @@ class FrontierGenerator:
                 scatters_x.append(frontier.position[0])
                 scatters_y.append(frontier.position[1])
             axis.scatter(scatters_x, scatters_y, c='y', marker='.')
-        if PLOT_VIRTUAL_MAP:
+        if PLOT_VIRTUAL_MAP and axis is not None:
             axis.cla()
             for frontier in self.frontiers.values():
-                if frontier.rendezvous:
+                if frontier.nearest_frontier:
                     axis.scatter(frontier.position[0], frontier.position[1],
                                  c='#4859af', marker='o', s=300, zorder=5)
                 elif frontier.relatives == []:
@@ -324,7 +343,7 @@ class FrontierGenerator:
 
     def choose_NF(self, robot_id):
         goal = self.find_frontier_nearest_neighbor()
-        self.goal_history[robot_id].append(goal)
+        self.goal_history[robot_id].append(np.array(goal))
         return goal, None
 
     def choose_CE(self, robot_id, robot_state_idx_position_local):
@@ -464,18 +483,19 @@ class FrontierGenerator:
         goals_task_allocation.append(point_to_world(robot_p.x(), robot_p.y(), self.origin))
         u_t = 0
         for goal in goals_task_allocation:
-            pts = generate_virtual_waypoints(goal, frontier.position, speed=self.u_t_speed)
+            pts = generate_virtual_waypoints(np.array(goal), frontier.position, speed=self.u_t_speed)
             if pts == []:
                 pts = [frontier.position]
             u_t += self.compute_utility_task_allocation(pts, robot_id)
         # calculate the landmark visitation and new exploration case first
         u_d = compute_distance(frontier, robot_p)
+        w_t = max(1 - self.explored_ratio * self.EMParam["w_t_degenerate"], 0)
         if DEBUG_EM:
             with open('log.txt', 'a') as file:
                 print("robot id, robot position, frontier position: ", robot_id, robot_p,
                       frontier.position_local, frontier.position, file=file)
-                print("uncertainty & task allocation & distance cost: ", u_m, u_t, u_d, file=file)
-        w_t = max(1 - self.explored_ratio * self.EMParam["w_t_degenerate"], 0)
+                print("uncertainty & task allocation & distance cost & sum: ", u_m, u_t, u_d,
+                      u_m + u_t * self.EMParam["w_t"] * w_t + u_d * self.EMParam["w_d"], file=file)
         return u_m + u_t * self.EMParam["w_t"] * w_t + u_d * self.EMParam["w_d"]
 
     def compute_utility_task_allocation(self, frontier_w_list, robot_id, ce_flag=False):
@@ -495,7 +515,7 @@ class FrontierGenerator:
             allocation_max_distance = self.allocation_max_distance
         else:
             allocation_max_distance = self.allocation_max_distance * \
-                                  (1 - self.explored_ratio*self.EMParam["w_t_degenerate"])
+                                      (1 - self.explored_ratio * self.EMParam["w_t_degenerate"])
         if dist < allocation_max_distance:
             P_d = 1 - dist / allocation_max_distance
         else:
@@ -515,6 +535,6 @@ class FrontierGenerator:
     def return_frontiers_rendezvous(self):
         frontiers = []
         for value in self.frontiers.values():
-            if value.connected_robot_pair != []:
+            if len(value.connected_robot_pair) != 0:
                 frontiers.append(value.position)
         return frontiers

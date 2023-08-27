@@ -53,10 +53,11 @@ class MarineNavEnv2:
         self.discount = 0.99
         self.num_cores = 0  # number of vortices
         self.num_obs = params["num_obs"]  # number of static obstacles
-        self.min_start_goal_dis = 3.0
+        self.min_start_goal_dis = 5.0
         self.num_cooperative = params["num_cooperative"] # number of cooperative robots
         self.num_non_cooperative = 0  # number of non-cooperative robots
         self.sensor_range = params["sensor_range"]
+        self.obs_radius = min(self.width, self.height) / 10
         self.robots = []  # list of robots
         for _ in range(self.num_cooperative):
             self.robots.append(robot.Robot(sensor_range=params["sensor_range"], cooperative=True))
@@ -383,7 +384,7 @@ class MarineNavEnv2:
             dy = obstacle.y - obs.y
             dis = np.sqrt(dx * dx + dy * dy)
 
-            if dis <= obstacle.r + obs.r:
+            if dis <= obstacle.r + obs.r + self.obs_radius:
                 return False
 
         return True
