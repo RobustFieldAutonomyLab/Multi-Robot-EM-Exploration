@@ -204,12 +204,12 @@ class FrontierGenerator:
         state_index = np.array(self.position_2_index([state.x(), state.y()]))
 
         # find the frontiers close enough to the target robot
-        # indices_distances_within_list = np.argwhere(distances < self.max_dist_robot_scaled)
 
         # Type 1 frontier, the nearest frontier to current position
         # _, indices_ = self.generate_potential_frontier_indices(probability_map, max_visited_neighbor=3)
         # distance between the target robot abd frontier candidates
         distances = np.linalg.norm(indices - state_index, axis=1)
+        indices_distances_within_list = np.argwhere(distances < self.max_dist_robot_scaled)
         index_this = np.argmin(distances)
         position_this = self.index_2_position(indices[index_this])
 
@@ -223,11 +223,11 @@ class FrontierGenerator:
             print("robot ", robot_id)
             print("distances: ", distances)
             print("index: ", index_this, position_this)
-        #
-        # for index_in_range in indices_distances_within_list:
-        #     if index_in_range[0] not in self.frontiers:
-        #         position_this = self.index_2_position(indices[index_in_range[0]])
-        #         self.frontiers[index_in_range[0]] = Frontier(position_this, origin=self.origin)
+        if self.explored_ratio < 0.2:
+            for index_in_range in indices_distances_within_list:
+                if index_in_range[0] not in self.frontiers:
+                    position_this = self.index_2_position(indices[index_in_range[0]])
+                    self.frontiers[index_in_range[0]] = Frontier(position_this, origin=self.origin)
 
         # Type 2 frontier, re-visitation of existing landmarks
         landmark_frontier_cnt = 0
@@ -266,7 +266,7 @@ class FrontierGenerator:
                         position_this = self.index_2_position(index_this)
                         self.frontiers[i] = Frontier(position_this, origin=self.origin,
                                                      relative=landmark_list[landmark_min][0])
-                        landmark_frontier_cnt += 1
+                        # landmark_frontier_cnt += 1
 
         # if (self.more_frontiers or len(self.frontiers) < self.min_landmark_frontier_cnt) and len(landmark_list) != 0:
         #     landmark_array = np.array(landmark_list)[:, :]

@@ -113,7 +113,7 @@ class ExpVisualizer:
         self.virtual_map = VirtualMap(param_virtual_map)
         self.a_star = A_Star(self.virtual_map.num_rows, self.virtual_map.num_cols, self.virtual_map.cell_size)
 
-        self.color_list = ['#865eb3', '#48adaf', '#4883af', '#4859af', '#aeaead']
+        self.color_list = ['#C28AB1', '#70A7D2', '#4B9694', '#2B43A6', '#825AB0', '#F4B940', '#E45F2B']
 
         param_frontier = self.virtual_map.get_parameters()
         param_frontier["num_robot"] = self.env.num_cooperative
@@ -173,6 +173,8 @@ class ExpVisualizer:
             virtual_map = self.virtual_map.get_virtual_map()
             for i, map_row in enumerate(virtual_map):
                 for j, virtual_landmark in enumerate(map_row):
+                    if virtual_landmark.covariance().trace() == 2.88:
+                        continue
                     plot_info_ellipse(np.array([virtual_landmark.x,
                                                 virtual_landmark.y]),
                                       virtual_landmark.information, self.axis_grid,
@@ -468,7 +470,7 @@ class ExpVisualizer:
         for i in range(self.env.num_cooperative):
             pose = self.landmark_slam.get_robot_trajectory(i, [init_x, init_y,
                                                                self.env.robots[0].init_theta])
-            self.axis_grid.plot(pose[:, 0], pose[:, 1], color=self.color_list[i], linewidth=2, zorder=10)
+            self.axis_grid.plot(pose[:, 0], pose[:, 1], color=self.color_list[i], linewidth=2, zorder=7)
             # self.axis_graph.scatter(pose[:,0],pose[:,1], marker="*", color="pink", s=500, zorder=5)
 
         for landmark_obs in self.landmark_list:
@@ -525,10 +527,10 @@ class ExpVisualizer:
         if self.axis_grid is not None:
             if not DEBUG_EXP_MAX and not DEBUG_FRONTIER and not PLOT_VIRTUAL_MAP:
                 self.axis_grid.cla()
-            self.axis_grid.scatter(goal[0], goal[1], marker="*", color="red", s=300, zorder=6)  # , alpha=0.5)
+            self.axis_grid.scatter(goal[0], goal[1], marker="*", color="#BB421F", s=300, zorder=6)  # , alpha=0.5)
             self.axis_grid.scatter(latest_state[idx].x(),
                                    latest_state[idx].y(),
-                                   marker='*', s=300, c='black', zorder=7)
+                                   marker='*', s=300, c='black', zorder=9)
         goal = local_goal_to_world_goal(goal, slam_poses[1][idx], [self.env.robots[idx].x,
                                                                    self.env.robots[idx].y,
                                                                    self.env.robots[idx].theta])
