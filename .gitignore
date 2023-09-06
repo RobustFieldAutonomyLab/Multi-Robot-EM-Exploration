@@ -5,3 +5,5 @@ marine_env/marine_env.egg-info/
 config/
 *.png
 *.json
+*.txt
+scripts/*

@@ -93,7 +93,7 @@ class FrontierGenerator:
         self.radius = parameters["radius"]
         self.origin = parameters["origin"]
 
-        self.max_dist_robot = 15
+        self.max_dist_robot = 10
         self.min_dist_landmark = 10
         self.allocation_max_distance = 30
 
@@ -298,8 +298,8 @@ class FrontierGenerator:
                 if dist_this < self.max_dist_robot:
                     continue  # the robot is too close to the goal
                 self.frontiers[len(indices) + robot_index] = Frontier(goal_this,
-                                                                       origin=self.origin,
-                                                                       rendezvous=True)
+                                                                      origin=self.origin,
+                                                                      rendezvous=True)
 
                 # neighbor's time to the goal
                 dist_that = np.sqrt((state_list[robot_index].x() - goal_this[0]) ** 2 +
@@ -333,13 +333,16 @@ class FrontierGenerator:
             for frontier in self.frontiers.values():
                 if frontier.nearest_frontier:
                     axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='#4859af', marker='o', s=300, zorder=5)
-                elif frontier.relatives == []:
-                    axis.scatter(frontier.position[0], frontier.position[1],
-                                 c='#4883af', marker='o', s=300, zorder=5)
-                else:
+                                 c='#59ABA9', marker='o', s=300, zorder=5)
+                elif frontier.rendezvous:
                     axis.scatter(frontier.position[0], frontier.position[1],
                                  c='#865eb3', marker='o', s=300, zorder=5)
+                elif len(frontier.relatives) == 0:
+                    axis.scatter(frontier.position[0], frontier.position[1],
+                                 c='#4D9CD7', marker='o', s=300, zorder=5)
+                # else:
+                #     axis.scatter(frontier.position[0], frontier.position[1],
+                #                  c='#59ABA9', marker='o', s=300, zorder=5)
 
     def choose_NF(self, robot_id):
         goal = self.find_frontier_nearest_neighbor()
@@ -357,13 +360,13 @@ class FrontierGenerator:
             u_t = 0
             for goal in goals_task_allocation:
                 pts = generate_virtual_waypoints(goal, frontier.position, speed=self.u_t_speed)
-                if pts == []:
+                if len(pts) == 0:
                     pts = [frontier.position]
                 u_t += self.compute_utility_task_allocation(pts, robot_id, True)
             # calculate the landmark visitation and new exploration case first
             u_d = compute_distance(frontier, robot_p)
             cost_list.append((key, self.CEParam["w_t"] * u_t + self.CEParam["w_d"] * u_d))
-        if cost_list == []:
+        if len(cost_list) == 0:
             # if no frontier is available, return the nearest frontier
             goal = self.find_frontier_nearest_neighbor()
         else:
@@ -394,7 +397,7 @@ class FrontierGenerator:
                                                  robot_state_idx_position_local[1][robot_id],
                                                  frontier)
             cost_list.append((key, cost_this))
-        if cost_list == []:
+        if len(cost_list) == 0:
             goal = self.find_frontier_nearest_neighbor()
         else:
             min_cost = min(cost_list, key=lambda tuple_item: tuple_item[1])
@@ -437,7 +440,7 @@ class FrontierGenerator:
                                                 robot_state_idx_position_local[1][robot_id],
                                                 frontier, robot_id)
             cost_list.append((key, cost_this))
-        if cost_list == []:
+        if len(cost_list) == 0:
             # if no frontier is available, return the nearest frontier
             goal = self.find_frontier_nearest_neighbor()
         else:
@@ -484,7 +487,7 @@ class FrontierGenerator:
         u_t = 0
         for goal in goals_task_allocation:
             pts = generate_virtual_waypoints(np.array(goal), frontier.position, speed=self.u_t_speed)
-            if pts == []:
+            if len(pts) == 0:
                 pts = [frontier.position]
             u_t += self.compute_utility_task_allocation(pts, robot_id)
         # calculate the landmark visitation and new exploration case first
@@ -496,7 +499,7 @@ class FrontierGenerator:
                       frontier.position_local, frontier.position, file=file)
                 print("uncertainty & task allocation & distance cost & sum: ", u_m, u_t, u_d,
                       u_m + u_t * self.EMParam["w_t"] * w_t + u_d * self.EMParam["w_d"], file=file)
-        return u_m + u_t * self.EMParam["w_t"] * w_t + u_d * self.EMParam["w_d"]
+        return u_m + u_t * self.EMParam["w_t"] * w_t + u_d * self.EMParam["w_d"] * self.explored_ratio
 
     def compute_utility_task_allocation(self, frontier_w_list, robot_id, ce_flag=False):
         # local frame to global frame

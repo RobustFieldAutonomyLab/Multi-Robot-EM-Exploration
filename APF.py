@@ -15,7 +15,7 @@ class APF_agent:
         self.a = a # available linear acceleration (action 1)
         self.w = w # available angular velocity (action 2)
 
-    def act(self, observation):
+    def act1(self, observation):
         if observation is None:
             return 0
         self_state,static_states,dynamic_states = observation
@@ -25,15 +25,25 @@ class APF_agent:
         dd = np.sqrt(goal[0] ** 2 + goal[1] ** 2)
         angle_w = from_cos_sin(goal[0]/dd, goal[1]/dd)
         return angle_w
-        # if angle_w > np.pi:
-        #     angle_w = angle_w - 2 * np.pi
+
+    def act(self, observation):
+        if observation is None:
+            return 0
+        self_state,static_states,dynamic_states = observation
+        # print(self_state,static_states,dynamic_states,idx_array)
+        velocity = np.array(self_state[2:4])
+        goal = np.array(self_state[:2])
+        dd = np.sqrt(goal[0] ** 2 + goal[1] ** 2)
+        angle_w = from_cos_sin(goal[0]/dd, goal[1]/dd)
+        if angle_w > np.pi:
+            angle_w = angle_w - 2 * np.pi
 
         # if angle_w > (180-30)/180 * np.pi:
-        # w_idx = np.argmin(abs(angle_w-self.w))
-        # a = copy.deepcopy(self.a)
-        # a[a<=0.0] = -np.inf
-        # a_idx = np.argmin(np.abs(a))
-        # return a_idx * len(self.w) + w_idx
+        w_idx = np.argmin(abs(angle_w-self.w))
+        a = copy.deepcopy(self.a)
+        a[a<=0.0] = -np.inf
+        a_idx = np.argmin(np.abs(a))
+        return a_idx * len(self.w) + w_idx
 
         # sonar_points = observation[4:]
 
@@ -46,14 +56,14 @@ class APF_agent:
         # for i in range(0,len(sonar_points),2):
         #     x = sonar_points[i]
         #     y = sonar_points[i+1]
-            # if x == 0 and y == 0:
-            #     continue
+        # if x == 0 and y == 0:
+        #     continue
         for obs in static_states:
             obs = np.array(obs)
             d_obs = np.linalg.norm(obs[:2])
             # d_obs = np.linalg.norm(sonar_points[i:i+2])
 
-            # repulsive force component to move away from the obstacle 
+            # repulsive force component to move away from the obstacle
             mag_1 = self.k_rep * ((1/d_obs)-(1/self.d0)) * (d_goal ** self.n)/(d_obs ** 2)
             # dir_1 = -1.0 * sonar_points[i:i+2] / d_obs
             dir_1 = -1.0 * obs[:2] / d_obs
@@ -66,7 +76,7 @@ class APF_agent:
 
             F_rep += (F_rep_1 + F_rep_2)
 
-        # select angular velocity action 
+        # select angular velocity action
         F_total = F_att + F_rep
         V_angle = 0.0
         if np.linalg.norm(velocity) > 1e-03:
@@ -80,14 +90,14 @@ class APF_agent:
             diff_angle -= 2 * np.pi
 
         w_idx = np.argmin(np.abs(self.w-diff_angle))
-        
+
         # select linear acceleration action
         a_total = F_total / self.m
         V_dir = np.array([1.0,0.0])
         if np.linalg.norm(velocity) > 1e-03:
             V_dir = velocity / np.linalg.norm(velocity)
         a_proj = np.dot(a_total,V_dir)
- 
+
         a = copy.deepcopy(self.a)
         if np.linalg.norm(velocity) < self.min_vel:
             # if the velocity is small, mandate acceleration
@@ -97,5 +107,3 @@ class APF_agent:
 
         return a_idx * len(self.w) + w_idx
 
-        
-        

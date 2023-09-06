@@ -113,7 +113,7 @@ def generate_virtual_waypoints(state_this, state_next, speed):
 
 
 def heuristic(node, goal):
-    return np.sqrt((node[0] - goal[0]) ** 2 + (node[1] - goal[1]) ** 2)
+    return np.norm(node[0] - goal[0]) + np.norm(node[1] - goal[1])
 
 
 class A_Star:

@@ -329,24 +329,24 @@ class Robot:
         # update robot position in one time step
         self.update_velocity(current_velocity)
         dis = self.velocity * self.dt
-        # self.x += dis[0]
-        # self.y += dis[1]
-
-        # update robot speed in one time step
-        # a, w = self.actions[action]
-
-        self.theta += action
-        self.update_velocity(current_velocity)
-        dis = self.velocity * self.dt
         self.x += dis[0]
         self.y += dis[1]
-        a = 1
+
+        # update robot speed in one time step
+        a, w = self.actions[action]
+
+        # self.theta += action
+        # self.update_velocity(current_velocity)
+        # dis = self.velocity * self.dt
+        # self.x += dis[0]
+        # self.y += dis[1]
+        # a = 1
         # assume that water resistance force is proportion to the speed
         self.speed += (a-self.k*self.speed) * self.dt
         self.speed = np.clip(self.speed,0.0,self.max_speed)
 
         # update robot heading angle in one time step
-        # self.theta += w * self.dt
+        self.theta += w * self.dt
 
 
         # warp theta to [0,2*pi)
