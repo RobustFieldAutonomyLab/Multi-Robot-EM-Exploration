@@ -5,7 +5,7 @@ mobile robots. Virtual landmarks are used to quantify the combined impact of pro
 
 ##
  - Here we provide a 2D example.
- - The Environment and local motion planner used in this repo is from our IROS 2023 paper [here](https://github.com/RobustFieldAutonomyLab/Distributional_RL_Navigation).
+ - The Environment and local motion planner used in this repo is developed from our IROS 2023 paper [here](https://github.com/RobustFieldAutonomyLab/Distributional_RL_Navigation).
 ```
   ├── Multi-Robot-EM-Exploration
      ├── marinenav_env          # IROS 2023 Environment
